@@ -1,0 +1,79 @@
+⸻
+
+✅ 一次性设置（只做一次）
+
+# 进入项目
+cd /path/to/your_project
+
+# 初始化（若已是git仓库可跳过）
+git init
+
+# 设远端，只做一次；不要每次删了再加
+git remote add origin git@github.com:Fuhai-Liang/football-ml.git
+
+# 把当前分支命名为 main（只需一次）
+git branch -M main
+
+说明：origin 是远端的常用名字；不要用 foot。
+“创建进程”这种说法不对，origin 只是一个远端地址别名。
+
+⸻
+
+🚀 日常推送（每次有改动时）
+
+git status
+git add -A
+git commit -m "feat: your message"
+
+# 先同步再推送，避免冲突
+git pull --rebase origin main
+git push -u origin main
+
+第一次推送用 -u 绑定上游；之后可直接 git push。
+
+⸻
+
+🔐 SSH 认证（Mac）
+	•	不需要每次都 ssh -T git@github.com。
+	•	建议配置 ~/.ssh/config（之前已给）：这样重启后也无需手动 ssh-add。
+
+快速测试（可选）：
+
+ssh -T git@github.com
+# 显示 “You've successfully authenticated, but GitHub does not provide shell access.” 即OK
+
+
+⸻
+
+🔄 如果远端已有提交（比如你在 GitHub 勾选了 README）
+
+git pull --rebase origin main
+# 若提示 unrelated histories：
+# git pull --rebase --allow-unrelated-histories origin main
+
+# 解决冲突 -> 保存
+git add <冲突文件>
+git rebase --continue    # 直到完成
+
+git push
+
+⸻
+
+🧰 常用检查
+
+git remote -v      # 应看到 origin 指向你的仓库
+git log --oneline --graph --decorate --all   # 查看分叉
+
+⸻
+
+你原来的清单对照修正
+	1.	不必每次都 ssh -T；仅测试用。
+2–4. 不要每次 remote remove/add；一次设置好 origin 即可。
+	2.	git remote -v ✅
+6–8. 远端名应是 origin，不是 foot；统一用：
+
+git fetch origin
+git pull --rebase origin main
+git push origin main
+
+需要的话，我可以把以上命令打包成一键脚本（含 .gitignore 与首次推送）。

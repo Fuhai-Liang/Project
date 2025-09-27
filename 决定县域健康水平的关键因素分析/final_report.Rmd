@@ -1,0 +1,738 @@
+---
+title: 'What are the predictors for better health outcomes at the county level in the United States?'
+author: "530446891"
+output:
+  pdf_document:
+    toc: TRUE
+    toc_depth: 3
+    latex_engine: xelatex
+  html_document:
+    toc: no
+    df_print: paged
+header-includes:
+- \usepackage{caption}
+- \captionsetup[figure]{font=scriptsize}
+- \usepackage{sectsty}
+- \allsectionsfont{\color{ForestGreen}}
+mainfont: Avenir Book
+urlcolor: blue
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+```
+
+```{r}
+library(readxl)
+library(readr)
+library(tidyr)
+library(ggplot2)
+library(naniar) 
+library(patchwork)
+library(knitr)
+library(mice)   
+library(tibble)
+library(reshape2) 
+library(broom)
+library(dplyr)
+library(kableExtra)
+
+```
+\newpage
+# 1. Introduction
+
+The United States has made significant progress in improving medical accessibility and overall health levels. However, premature age-adjusted mortality rates still exist among counties and there are obvious regional differences. **The main research question of this study** is: What are the key environmental and social determinants that affect the regional differences in premature age-adjusted mortality rates among counties in the United States?
+
+**The aim of this study** is to identify the key social and environmental factors that lead to differences in premature age-adjusted mortality rates among counties in the United States, thereby providing an empirical basis for formulating localized and evidence-based public health intervention policies. **The motivation for this study** is that although healthcare at the national level in the United States has been continuously improving, there are still significant regional differences in health outcomes. This inequality reflects the reality of social structural risks and uneven resource distribution. A thorough understanding of these potential determinants and an identification of which factors play a key role can help formulate more targeted public health policies.
+
+# 2. Literature and Theory
+
+This study divides the key factors influencing premature death into five dimensions, including multiple variables: median income, educational attainment, obesity rate and prevalence of diabetes, smoking rate and mental health and physical inactivity, gun mortality rate and homicide rate, etc. These variables represent social structure and individual behavior. The combined impact has formed the theoretical basis for understanding the multi-factor mechanism of premature death. The following is a review of the existing literature in each variable direction.
+
+## 2.1 Income
+Income is the core indicator of socioeconomic status, a lower income level usually limits people's ability to obtain high-quality medical and health food and safe housing, thereby increasing health risks (Roy et al., 2020). Additionally, the research by Melchior et al. (2006) pointed out that the risk of premature death among non-management male workers is higher than that of the management group. The close connection between income and occupational status further demonstrates the impact of social structure on health outcomes.
+
+At present, most studies have not fully incorporated community environmental indicators such as housing quality and air pollution as mediating variables. Occupational status is highly correlated with income, but the work intensity and occupational exposure brought by different occupations can also affect health. Current literature rarely simultaneously control for such confounding factors. **Evidence shows that** income is generally negatively correlated with premature mortality, but this effect may be partially neutralized or moderated by confounding variables such as living environment and occupational status, which requires further confirmation.
+
+## 2.2 Educational Level
+Educational level, as another factor, has a profound impact on individual health outcomes (Roy et al., 2020). Those with a lower educational level often lack health literacy and participate less in physical examinations or maintenance programs for improving health, thereby increasing the premature mortality rate. However, existing studies have not detailed the long-term impact of educational quality differences (such as public school resources and continuing education opportunities) on health outcomes; Cultural and social networks may play an important regulatory role in the education-health relationship. **Evidence shows that** educational attainment should be negatively correlated with premature mortality rate. However, there may be differences in educational resources and cultural backgrounds in different communities, which requires further investigation.
+
+## 2.3 Chronic diseases
+Chronic diseases, especially obesity and diabetes, are the main disease factors directly related to premature death. Nguyen et al. (2024) pointed out that diabetes is one of the important causes of premature death worldwide, especially in areas with insufficient health resources. Obesity is a cause of premature death that is easily overlooked (Hennekens & Andreotti, 2013). Hasani et al. (2023) also emphasized that cardiovascular diseases, as manifestations of obesity-related disorders, significantly increase the risk of death.
+
+Most existing studies analyze obesity and diabetes separately, lacking a systematic test of the synergistic effect when the two coexist. Most literature does not incorporate dietary patterns and physical activities into the model, ignoring the direct association between lifestyle and chronic diseases. **Evidence shows that** both the obesity rate and the prevalence of diabetes are significantly positively correlated with premature mortality, but the roles of lifestyle and medical environment remain unknown. 
+
+## 2.4 Personal behavioral
+Personal behavioural variables play an important role in health, especially smoking, lack of exercise and mental health status. Minhas et al. (2025) found that smoking behaviour and lack of physical activity significantly increased the risk of cardiopulmonary diseases, thereby leading to a higher premature mortality rate. Mai et al. (2018) discovered this phenomenon: the earlier young people quit smoking, the more significantly the rate of premature death decreases. However, for the elderly, quitting smoking has little impact on the rate of premature death. Meanwhile, Han et al. (2024) pointed out that long-term mental unhealthy states (such as depression and anxiety) significantly increase the risk of death.
+
+Most of the literature only analyzes a single bad behaviour and lacks a joint test of the three dimensions of smoking, insufficient exercise and mental health. Moreover, the moderating effect of socioeconomic status on health behaviours has not been deeply explored. **Evidence shows that** smoking rate, number of mentally unhealthy days and lack of physical activity are all positively correlated with premature mortality, but the interaction among them requires further exploration.
+
+## 2.5 Environmental safety
+Environmental safety risks, especially gun violence and community violence, are emergent factors that directly affect premature mortality rates (Martinez-Schnell & Waxweiler, 1989; Patrick, 2025). Because in areas where violent incidents occur frequently, residents face a higher risk of direct death and indirect health damage. Communities with high gun mortality rates are usually accompanied by socio-economic inequality and insufficient public services.
+
+Most studies have not distinguished the different contributions of gun suicide and homicide to the overall premature mortality rate; There are significant differences in law enforcement efficiency and judicial justice within the community. These factors have not been fully empirically verified as moderating variables. **Evidence shows that** gun fatality rate and homicide rate have a significant positive impact on premature mortality rate, but their specific effects may be jointly influenced by socio-economic structure and community safety systems.
+
+The literature is summarized as follows: 
+\newpage
+```{r echo=FALSE}
+# Create a data frame for the table
+# ------------------------------------------------
+
+df <- data.frame(
+  Feature_Name = c(
+    "Median Incom",
+    "Educational Attainment",
+    "Obesity Rate",
+    "Prevalence of Diabetes",
+    "Smoking Rate",
+    "Mentally Unhealthy Days",
+    "Physical Inactivity",
+    "Gun Mortality Rate",
+    "Homicide Rate"
+  ),
+  Corresponding_research_literature = c(
+    "Roy et al. (2020); Melchior et al. (2006)",
+    "Roy et al. (2020)",
+    "Hasani et al. (2023); Hennekens & Andreotti (2013)",
+    "Nguyen et al. (2024)",
+    "Minhas et al. (2025); Mai et al. (2018)",
+    "Minhas et al. (2025); Han et al. (2024)",
+    "Minhas et al. (2025)",
+    "Martinez-Schnell & Waxweiler (1989); Patrick (2025)",
+    "Martinez-Schnell & Waxweiler (1989); Patrick (2025)"
+  ),
+  Direction = c(
+    "Negative",
+    "Negative",
+    "Positive",
+    "Positive",
+    "Positive",
+    "Positive",
+    "Positive",
+    "Positive",
+    "Positive"
+  ),
+  stringsAsFactors = FALSE
+)
+# Use kable() to render the table in RMarkdown
+kable(
+  df,
+  booktabs = TRUE,     
+  col.names = c("Feature Name", "Corresponding research literature", "Direction"),
+  align = c("l", "l", "c"),
+  caption = "Literature summary table"
+)
+```
+
+## 2.6 hypothesis
+Based on the above literature review and theoretical support, this study proposes the following testable hypotheses:
+```{r echo=FALSE}
+
+
+df_hypotheses_en <- data.frame(
+  ID = c("A", "B", "C", "D", "E"),
+  Hypothesis = c(
+    "Lower median income is associated with higher age-adjusted premature mortality",
+    "Lower educational attainment is associated with higher age-adjusted premature mortality",
+    "Higher obesity rate and diabetes prevalence are associated with higher age-adjusted premature mortality",
+    "Higher smoking rate, more mentally unhealthy days, and higher physical inactivity are associated with higher age-adjusted premature mortality",
+    "Higher gun mortality rate and homicide rate are associated with higher age-adjusted premature mortality"
+  ),
+  Direction = c("Negative-Moderate", "Negative-Moderate", "Positive-Strong", "Positive-Moderate", "Positive-Strong"),
+  stringsAsFactors = FALSE
+)
+
+kable(
+  df_hypotheses_en,
+  col.names = c("ID", "Hypothesis", "Direction"),
+  align = c("c", "l", "c", "c"),
+  caption = "List of Hypotheses with Direction and Expected Impact Strength",
+  booktabs = TRUE
+)
+```
+
+**The theoretical basis** for selecting these hypothesis is as follows: Socioeconomic status and educational level are the most fundamental factors determining health. The higher the economic level or educational level, the more environment or resources an individual will have to determine their health level. Chronic diseases (such as obesity and diabetes) are the early manifestations of the main causes of death and directly affect lifespan. Bad behaviors such as smoking Lack of exercise and mental health problems are not only the causes of chronic diseases but also closely related to mortality rates. Meanwhile, environmental safety factors (such as gun violence and homicide rates) are directly associated with an individual's life safety and represent the regional social risk level.
+
+
+# 3. Data and Methodology
+## 3.1 Data collection
+The data used in this study mainly come from two parts: One is the 2018 county-level Health ranking dataset publicly released by the County Health Rankings project. Among them, The two worksheets, Ranked Measure Data and Additional Measure Data, respectively contain the health behavior index, socio-economic indicators, chronic disease indicators and environmental safety indicators of each county. The second one is from a CSV file of cardiovascular disease data related to hypertension The Centers for Disease Control Download (Centers for Disease Control and Prevention, 2022), this data records the number of cardiovascular disease cases or hospitalizations classified by year in each county across the country. 
+
+This study combined these two types of datasets using county-level FIPS codes. It should be noted that some indicators such as some college Only people aged between 25 and 44 were counted. However, the incidence of cardiovascular diseases is a null value in the data of some counties. To address this potential bias, we will import multiple socio-economic and behavioral variables for joint modelling in the analysis model.
+```{r}
+#  Read "Ranked Measure Data" sheet, skipping the first header row
+df_ranked <- read_excel(
+  "./data/2018 County Health Rankings Data - v2.xls",
+  sheet = "Ranked Measure Data",
+  skip  = 1
+)
+
+#  Read "Additional Measure Data" sheet, skipping the first header row
+df_additional <- read_excel(
+  "./data/2018 County Health Rankings Data - v2.xls",
+  sheet = "Additional Measure Data",
+  skip  = 1
+)
+
+#  Inspect column names (optional)
+# colnames(df_ranked)
+# colnames(df_additional)
+
+#  Select desired columns from df_ranked
+sub_df_ranked <- df_ranked %>%
+  select(
+    'FIPS', 'State', 'County',
+    'Mentally Unhealthy Days',
+    '% Smokers',
+    '% Obese',
+    '% Physically Inactive',
+    '% Some College'
+  )
+
+# Select desired columns from df_additional
+sub_df_additional <- df_additional %>%
+  select(
+    'FIPS', 'State', 'County',
+    '% Diabetic',
+    'Household Income',
+    'Homicide Rate',
+    'Firearm Fatalities Rate',
+    'Age-Adjusted Mortality'
+  )
+
+#  Merge the two subsets by (FIPS, State, County)
+df_joined <- sub_df_additional %>%
+  left_join(sub_df_ranked, by = c("FIPS", "State", "County"))
+
+#  Read additional cardiovascular data from CSV
+df_another <- read_csv("./data/additional_data.csv")
+
+#  Aggregate cardiovascular cases for Year == 2018, grouping by LocationID
+df_cancer_sum <- df_another %>%
+  filter(Year == 2018) %>%
+  group_by(LocationID) %>%                                
+  summarise(
+    Cardiovascular_rate = sum(Data_Value, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+ 
+  mutate(LocationID = sprintf("%05d", as.numeric(LocationID)))
+
+#  Merge cardiovascular_rate into df_joined by matching FIPS == LocationID
+df_final <- df_joined %>%
+  left_join(
+    df_cancer_sum %>% select(LocationID, Cardiovascular_rate),
+    by = c("FIPS" = "LocationID")
+  )
+
+missing_percent <- colMeans(is.na(df_final)) * 100
+
+```
+## 3.2 Select variables
+Based on the previous hypotheses and literature, this study decides to select the following variables to explore which factor has the greatest influence:
+
+```{r echo=FALSE}
+
+# Construct variable definition table with Category in English
+var_def <- tribble(
+  ~Variable,                  ~Definition,                                                      ~Category,
+  "Age_Adjusted_Mortality",   "Number of premature deaths per 100,000 population",               "Dependent Variable",
+  "% Diabetic",               "Percentage of diabetic adults",                      "Independent Variable",
+  "Cardiovascular Rate",      "Cardiovascular disease rate ", "Independent Variable",
+  "Household Income",         "Median household income (USD)",                      "Independent Variable",
+  "% Some College",           "Percentage with some college education",             "Independent Variable",
+  "Mentally Unhealthy Days",  "Average number mentally unhealthy days per month",    "Independent Variable",
+  "% Smokers",                "Adult smoking rate",                                 "Independent Variable",
+  "% Obese",                  "Adult obesity rate",                      "Independent Variable",
+  "% Physically Inactive",    "Percentage of adults with insufficient activity",    "Independent Variable",
+  "Firearm Fatalities Rate",  "Number of firearm fatalities",             "Independent Variable"
+)
+
+# Render the table
+kable(
+  var_def,
+  caption   = "Variable Selection",
+  col.names = c("Variable", "Definition", "Category"),
+  align     = c("l", "l", "l")
+)
+```
+
+## 3.3 Data process
+For the handling of missing values, the missing rates of each column in the merged data frame were first calculated. It was found that the missing rate of the homicide rate column exceeded 60%, so it was deleted. Regarding the remaining missing values, we believe that in human behavior or chronic disease indicator data, there is often real missing information, and blind interpolation is not advisable. Based on this consideration, all numerical columns are adopted The median interpolation method fills in the missing values. The reason for median interpolation is that, compared with mean interpolation, the median is less affected by extreme values and can reduce the distortion of the distribution pattern while ensuring the sample size required by the model.
+
+
+```{r}
+
+df2 <- df_final %>%
+  select(-`Homicide Rate`)
+missing_percent2 <- colMeans(is.na(df2)) * 100
+
+# Identify all numeric columns in df2
+num_vars2 <- df2 %>%
+  select_if(is.numeric) %>%
+  names()
+# Impute remaining missing values with median of each numeric column
+df_imputed <- df2 %>%
+  mutate(across(
+    all_of(num_vars2),
+    ~ ifelse(is.na(.), median(., na.rm = TRUE), .)
+  ))
+```
+## 3.4 Data analysis 
+
+After completing the data preprocessing and merging, we first conducted descriptive statistics and visualization on all numerical variables (a total of 10 items, including 9 independent variables and 1 dependent variable).
+
+```{r fig.width=10,fig.hight=5}
+
+final_df <- df_imputed %>%
+  rename(
+    Percent_Diabetic            = `% Diabetic`,
+    Household_Income            = `Household Income`,
+    Firearm_Fatalities_Rate     = `Firearm Fatalities Rate`,
+    Age_Adjusted_Mortality      = `Age-Adjusted Mortality`,
+    Mentally_Unhealthy_Days     = `Mentally Unhealthy Days`,
+    Percent_Smokers             = `% Smokers`,
+    Percent_Obese               = `% Obese`,
+    Percent_Physically_Inactive = `% Physically Inactive`,
+    Percent_Some_College        = `% Some College`,
+    Cardiovascular_Rate         = Cardiovascular_rate
+  )
+
+plots <- lapply(c("Age_Adjusted_Mortality","Household_Income","Percent_Diabetic"), function(v) {
+  ggplot(final_df, aes_string(x = v)) +
+    geom_histogram(color = "black", fill = "lightgray", bins = 30, na.rm = TRUE) +
+    labs(
+      x     = v,
+      y     = "Count"
+    ) +
+    theme_minimal() +
+    theme(plot.title = element_text(hjust = 0.5))
+})
+
+wrap_plots(plots, ncol = 3)
+```
+
+The age-adjusted mortality rate was slightly rightward, with a median of approximately 340 per 100,000. Household income is significantly skewed to the right, with a median of approximately $50,000. The mortality rate of firearms and the cardiovascular rate are also significantly skewed. The distribution of percentage-based indicators (diabetes rate, obesity rate, smoking rate, physical inactivity rate, and some with a college degree) is closer to symmetry, but some show a slightly long tail at the tail. (The remaining distribution maps can be found in the appendix)
+
+```{r fig.width=10,fig.hight=5}
+
+
+box_plots <- lapply(c("Firearm_Fatalities_Rate","Cardiovascular_Rate","Percent_Some_College"), function(v) {
+  ggplot(final_df, aes_string(x = "''", y = v)) +
+    geom_boxplot(fill = "skyblue", outlier.color = "red", na.rm = TRUE) +
+    labs(
+      x     = "",
+      y     = v
+    ) +
+    theme_minimal() +
+    theme(
+      axis.text.x  = element_blank(),
+      axis.ticks.x = element_blank(),
+      plot.title   = element_text(hjust = 0.5)
+    )
+})
+
+wrap_plots(box_plots, ncol = 3)
+```
+
+It can be seen from the box plot in the above figure that several extremely high values can be observed in the box plots of gun fatality rate and the incidence of cardiovascular diseases. There are also a few outliers in the proportion of college education and family income in some cases. Therefore, these indicators may have a closer relationship with the dependent variable. The remaining percentage indicators have a relatively small degree of outlier. (The remaining distribution maps can be found in the appendix).
+
+
+```{r fig.width=10,fig.hight=5}
+predictor_vars <- c(
+  "Percent_Diabetic",
+  "Percent_Some_College"
+)
+
+df_scaled <- final_df %>%
+  # Keep Age_Adjusted_Mortality unchanged, scale only predictors
+  mutate(across(
+    all_of(predictor_vars),
+    ~ scale(.)[, 1]      # scale() returns a 1-column matrix
+  ))
+
+# -------------------------------
+# Prepare data for plotting:
+#    Pivot predictors to long format,
+#    so that each predictor’s standardized value can be plotted
+#    against Age_Adjusted_Mortality in facets.
+# -------------------------------
+df_long <- df_scaled %>%
+  select(all_of(predictor_vars), Age_Adjusted_Mortality) %>%
+  pivot_longer(
+    cols      = all_of(predictor_vars),
+    names_to  = "variable",
+    values_to = "std_value"
+  )
+
+# -------------------------------
+# Plot scatter + linear fit for each predictor vs Age_Adjusted_Mortality.
+#    Use facet_wrap to place all panels in one combined figure.
+# -------------------------------
+p_correlations <- ggplot(df_long, aes(x = std_value, y = Age_Adjusted_Mortality)) +
+  geom_point(alpha = 0.4, size = 0.8) +
+  geom_smooth(method = "lm", se = TRUE, color = "blue", size = 0.5) +
+  facet_wrap(
+    ~ variable,
+    scales = "free_x",
+    ncol   = 5
+  ) +
+  labs(
+    title = "Standardized Predictors vs Age-Adjusted Mortality",
+    x     = "Standardized Value",
+    y     = "Age-Adjusted Mortality"
+  ) +
+  theme_minimal() +
+  theme(
+    strip.text      = element_text(size = 10),
+    plot.title      = element_text(hjust = 0.5),
+    axis.text       = element_text(size = 8),
+    axis.title      = element_text(size = 9),
+    panel.spacing   = unit(0.5, "lines")
+  )
+
+# Print the combined plot
+print(p_correlations)
+
+```
+
+There is an obvious linear correlation between almost all the independent variables and the premature death rate.
+
+
+```{r fig.width=10,fig.hight=5}
+
+predictor_vars <- c(
+  "Percent_Diabetic",
+  "Household_Income",
+  "Firearm_Fatalities_Rate",
+  "Mentally_Unhealthy_Days",
+  "Percent_Smokers",
+  "Percent_Obese",
+  "Percent_Physically_Inactive",
+  "Percent_Some_College",
+  "Cardiovascular_Rate"
+)
+
+
+df_scaled <- final_df %>%
+  mutate(across(
+    all_of(predictor_vars),
+    ~ scale(.)[, 1]
+  ))
+
+
+df_long_corr <- df_scaled %>%
+  select(all_of(predictor_vars), Age_Adjusted_Mortality) %>%
+  pivot_longer(
+    cols      = all_of(predictor_vars),
+    names_to  = "variable",
+    values_to = "std_value"
+  )
+
+
+#  Define variables for correlation (predictors + outcome)
+vars_for_corr <- c(predictor_vars, "Age_Adjusted_Mortality")
+
+# Compute correlation matrix (use complete observations)
+corr_mat <- cor(df_scaled %>% select(all_of(vars_for_corr)), use = "complete.obs")
+
+
+
+corr_long <- melt(corr_mat, varnames = c("Var1", "Var2"), value.name = "Correlation")
+
+
+ggplot(corr_long, aes(x = Var1, y = Var2, fill = Correlation)) +
+  geom_tile(color = "white") +                                            # draw tiles
+  scale_fill_gradient2(                                                    # diverging color scale
+    low = "blue", mid = "white", high = "red", midpoint = 0, limit = c(-1, 1)
+  ) +
+  geom_text(aes(label = sprintf("%.2f", Correlation)), size = 3) +         # add numbers
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),                    # tilt x labels
+    axis.title = element_blank(),                                         # hide axis titles
+    panel.grid = element_blank()                                          # remove grid lines
+  ) +
+  labs(title = "Correlation Heatmap with Values")
+```
+
+The correlation distribution graph shows that the factors highly positively correlated with age-adjusted mortality are: the smoking rate (r= 0.71), and the diabetes rate (r= 0.67), the mental unhealth day (r = 0.64). The highly negatively correlated ones are: household income (r =-0.67) and the proportion of some college degrees (r = -0.56); The correlation of the incidence of cardiovascular diseases was relatively weak (r =0.22). It can also be seen that there is a positive correlation between the rate of physical inactivity and diabetes, indicating that some premature death rates are the combined effect of multiple factors.
+
+
+Based on the above exploratory analysis results, this study adopted multiple linear regression to quantitatively estimate the linear relationship between each variable and age-adjusted mortality rate. Firstly, all independent variables were standardized to eliminate dimensional differences and make the regression coefficients directly reflect the expected change in the dependent variable for each increase of one standard deviation in the independent variable. Multiple linear regression has high computational efficiency. It has advantages such as easy parameter interpretation and a mature statistical inference framework, but it is also relatively sensitive to outliers and multicollinearity, and can only capture linear effects and then be further improved based on the goodness of fit of the model.
+
+# 4. Modelling Results and discussion
+```{r}
+formula_lm <- as.formula(
+  "Age_Adjusted_Mortality ~ 
+     Percent_Diabetic +
+     Household_Income +
+     Firearm_Fatalities_Rate +
+     Mentally_Unhealthy_Days +
+     Percent_Smokers +
+     Percent_Obese +
+     Percent_Physically_Inactive +
+     Percent_Some_College +
+     Cardiovascular_Rate"
+)
+
+
+# Fit the linear model using lm()
+model_lm <- lm(formula_lm, data = df_scaled)
+
+
+glance_table <- model_lm %>%
+  glance() %>%
+  select(
+    r.squared, 
+    adj.r.squared, 
+    sigma, 
+    statistic, 
+    p.value, 
+    df.residual, 
+    AIC, 
+    BIC
+  ) %>%
+  rename(
+    `R²`           = r.squared,
+    `Adj. R²`      = adj.r.squared,
+    `Residual SD`  = sigma,
+    `F statistic`  = statistic,
+    `F p-value`    = p.value,
+    `df Residual`  = df.residual,
+    AIC            = AIC,
+    BIC            = BIC
+  )
+
+glance_table %>%
+  kable(
+    digits   = 3,
+    caption  = "Linear regression model fits the statistics",
+    booktabs = TRUE
+  ) %>%
+  kable_styling(latex_options = c("hold_position"))
+
+```
+As shown in the table, the multiple linear regression model constructed in this study has a high explanatory degree for the premature age-adjusted mortality rate in the county, with Adjusted R = 0.680. This indicates that the nine standardized independent variables can jointly explain approximately 68% of the mortality rate differences, and the model as a whole is significant (p < 0.001) It has a very high credibility.
+
+```{r}
+
+coef_table <- model_lm %>% 
+  tidy() %>% 
+  select(term, estimate, std.error, statistic, p.value) %>% 
+  rename(
+    Term         = term,
+    Estimate     = estimate,
+    `Std. Error` = std.error,
+    `t value`    = statistic,
+    `Pr(>t)`   = p.value
+  )
+
+
+coef_table %>%
+  kable(
+    digits   = 3,
+    caption  = "Coefficient estimation of linear regression model",
+    booktabs = TRUE
+  ) %>%
+  kable_styling(latex_options = c("striped", "hold_position"))
+
+```
+The above table lists the regression coefficients, standard errors and significance test results of each variable.
+Most of the results of the model demonstrate our hypothesis, but at the same time, some of them present the opposite view to our hypothesis:
+```{r}
+comparison_table <- tibble(
+  Hypothesis     = c(
+    "H1 (Income)",
+    "H2 (Education)",
+    "H3 (Chronic diseases)",
+    "H3 (Chronic diseases)",
+    "H4 (Personal behavior)",
+    "H4 (Personal behavior)",
+    "H4 (Personal behavior)",
+    "H5 (Environment safety)"
+  ),
+  Variable       = c(
+    "Household_Income",
+    "Percent_Some_College",
+    "Percent_Diabetic",
+    "Percent_Obese",
+    "Percent_Smokers",
+    "Percent_Physically_Inactive",
+    "Mentally_Unhealthy_Days",
+    "Firearm_Fatalities_Rate"
+  ),
+  Estimate       = c(
+    "-21.501  (p < 0.001)",
+    "-3.872   (p < 0.010)",
+    "19.580   (p < 0.001)",
+    "-5.015   (p < 0.004)",
+    "34.368   (p < 0.05)",
+    "14.236   (p < 0.05)",
+    " 4.614   (p < 0.05)",
+    "18.230   (p < 0.001)"
+  ),
+  Interpretation = c(
+    "Each unit increase in income is linked to 21.5 fewer deaths per 100,000, a strong protective effect",
+    "Each unit rise in some‐college attainment reduces mortality by 3.87 per 100,000, supporting health literacy benefits",
+    "Each unit increase in diabetes prevalence adds 19.58 deaths per 100,000, confirming diabetes as a key risk factor",
+    "Each unit increase in obesity is associated with 5.02 fewer deaths per 100,000, suggesting an obesity paradox",
+    "Each unit increase in smoking prevalence adds 34.37 deaths per 100,000, indicating a major behavioral risk",
+    "Each unit rise in physical inactivity adds 14.24 deaths per 100,000, underscoring the importance of exercise",
+    "Each additional mentally unhealthy day per month adds 4.61 deaths per 100,000, linking stress to mortality",
+    "Each unit increase in firearm fatality rate adds 18.23 deaths per 100,000, highlighting violence as a public health issue"
+  )
+)
+
+# 2. Split into two tables:
+main_table <- comparison_table %>% 
+  select(Hypothesis, Variable, Estimate)
+
+cont_table <- comparison_table %>% 
+  select(Interpretation)
+
+# 3. Output main table (first 3 columns)
+main_table %>%
+  kable(
+    caption  = "Comparison of Hypothesis Results with Literature",
+    booktabs = TRUE,
+    align    = c("l", "l", "r")
+  ) %>%
+  kable_styling(latex_options = c("striped", "hold_position"))
+```
+\newpage
+```{r}
+# 4. Output continuation table (interpretations)
+cont_table %>%
+  kable(
+    caption  = "Comparison of Hypothesis Results with Literature (Continued)",
+    booktabs = TRUE,
+    align    = "l"
+  ) %>%
+  kable_styling(latex_options = c("striped", "hold_position"))
+```
+
+The results of the above table show that chronic diseases and individual behaviors have the most significant promoting effect on the premature age-adjusted mortality rate: For every 1 percentage point increase in the obesity rate, the mortality rate rises by approximately 19.580 people per 100,000; Meanwhile, the smoking rate and insufficient health activities also contributed to an increase of 34.368 and 14.236 deaths per percentage point respectively, while on average, for every additional day of mental unhealth, it increased by approximately 4.614 people. Among socio-economic and environmental factors, for every increase of one standard unit of the US dollar in household income, approximately 21.501 people can be reduced, and for every 1 percentage point increase in some college degrees, approximately 3.872 people can be reduced. The mortality rate from firearms and the rate of cardiovascular diseases increased by approximately 18.230 and 8.848 per unit respectively.
+
+However, the regression coefficient of the obesity rate is -5.015. When the obesity rate per unit increased, the number of premature deaths decreased by 5.015 instead, contrary to our hypothesis and the mainstream literature. This might be because people with a higher BMI show a lower risk of death in the short term due to receiving more medical intervention or presenting "metabolically healthy obesity". This "obesity paradox" indicates that subsequent research needs to more precisely break down BMI grades, body composition and specific intervention models to help understand the true relationship between obesity and premature mortality.
+
+# 5. Conclusion 
+## 5.1 Conclusion
+This study determined that the prevalence of diabetes, smoking rate, gunshot deaths and the number of days of personal healthy activities were the four most powerful county-level drivers affecting premature age-adjusted mortality. Meanwhile, the increase in household income significantly reduces the premature death rate. The situation of obesity contradicts our initial assumption, which indicates that the "obesity paradox" deserves more in-depth study.
+
+## 5.2 Policy recommendations
+1. Give priority to diabetes screening and smoking cessation programs at the community level.
+2. Expand mental health services and emotional health education to reduce chronic stress.
+3. Incorporate the popularization and management of health knowledge into the educational curriculum.
+4. Strengthen public safety intervention in areas with hotspots of gun violence.
+5. Conduct targeted research on the obesity paradox to improve clinical and public health strategies.
+
+## 5.3 Limitations and Future Work
+Some data, such as factors like shootings, limit causal reasoning, retain only the data, and blur the temporal trend. Future work should incorporate policy variables, break down BMI and physical activity indicators, and apply mixed models with additional variables (urbanization, medical density, survey coverage) to enhance insights into causal relationships and guide more precise intervention measures.
+
+\newpage
+# 6. Appendix
+## 6.1 Reference
+
+Centers. (2022, February 8). Rates and Trends in Hypertension-related Cardiovascular Disease Mortality Among US Adults (35+) by County, Age Group, Race/Ethnicity, and Sex – 2000-2019. Cdc.gov. https://data.cdc.gov/Heart-Disease-Stroke-Prevention/Rates-and-Trends-in-Hypertension-related-Cardiovas/uc9k-vc2j/data_preview
+
+Han, X., Hu, X., Zheng, Z., Shi, K. S., & Yabroff, K. R. (2024). Associations of Medical Debt With Health Status, Premature Death, and Mortality in the US. JAMA Network Open, 7(3), e2354766. https://doi.org/10.1001/jamanetworkopen.2023.54766
+
+Hasani, W. S. R., Muhamad, N. A., Hanis, T. M., Maamor, N. H., Chen, X. W., Omar, M. A., Cheng Kueh, Y., Abd Karim, Z., Hassan, M. R. A., & Musa, K. I. (2023). The global estimate of premature cardiovascular mortality: a systematic review and meta-analysis of age-standardized mortality rate. BMC Public Health, 23(1), 1561. https://doi.org/10.1186/s12889-023-16466-1
+
+Hennekens, C. H., & Andreotti, F. (2013). Leading Avoidable Cause of Premature Deaths Worldwide: Case for Obesity. The American Journal of Medicine, 126(2), 97–98. https://doi.org/10.1016/j.amjmed.2012.06.018
+
+Mai, Z.-M., Ho, S.-Y., Lo, C.-M., Wang, M.-P., Peto, R., & Lam, T.-H. (2018). Mortality reduction from quitting smoking in Hong Kong: population-wide proportional mortality study. International Journal of Epidemiology, 47(3), 752–759. https://doi.org/10.1093/ije/dyx267
+
+Martinez-Schnell, B., & Waxweiler, R. J. (1989). Increases in Premature Mortality Due to Homicide — United States, 1968-1985. Violence and Victims, 4(4), 287–293. https://doi.org/10.1891/0886-6708.4.4.287
+
+Melchior, M., Berkman, L. F., Kawachi, I., Krieger, N., Zins, M., Bonenfant, S., & Goldberg, M. (2006). Lifelong socioeconomic trajectory and premature mortality (35–65 years) in France: findings from the GAZEL Cohort Study. Journal of Epidemiology and Community Health, 60(11), 937–944. https://doi.org/10.1136/jech.2005.042440
+
+Minhas, A. M. K., Gupta, K., Michos, E. D., Sauer, A. J., Sperling, L., Nambi, V., Abushamat, L., Ballantyne, C. M., & Abramov, D. (2025). County-level association between modifiable health behaviors and premature mortality in the United States. Preventive Medicine Reports, 51, 103003. https://doi.org/10.1016/j.pmedr.2025.103003
+
+Nguyen, R. T., Jain, V., Acquah, I., Khan, S. U., Parekh, T., Taha, M., Virani, S. S., Blaha, M. J., Nasir, K., & Javed, Z. (2024). Association of cardiovascular risk profile with premature all-cause and cardiovascular mortality in US adults: findings from a national study. BMC Cardiovascular Disorders, 24(1). https://doi.org/10.1186/s12872-023-03672-3
+
+Patrick, K. S. (2025). PREMATURE MORTALITY FROM FIREARM-RELATED INJURIES IN THE UNITED S...: Ingenta Connect. Ingentaconnect.com. https://www.ingentaconnect.com/content/cog/tech/1995/00000332/f0050002/art00004
+
+Roy, B., Kiefe, C. I., Jacobs, D. R., Goff, D. C., Lloyd-Jones, D., Shikany, J. M., Reis, J. P., Gordon-Larsen, P., & Lewis, C. E. (2020). Education, Race/Ethnicity, and Causes of Premature Mortality Among Middle-Aged Adults in 4 US Urban Communities: Results From CARDIA, 1985–2017. American Journal of Public Health, 110(4), 530–536. https://doi.org/10.2105/ajph.2019.305506
+
+## 6.2 All Picture About Data Analysis
+
+```{r all-plots, echo=FALSE, message=FALSE, warning=FALSE,fig.show='hold', fig.width=4, fig.height=4, out.width='49%', fig.align='center'}
+
+
+# 1. Define predictor variables
+predictors <- c(
+  "Percent_Diabetic",
+  "Household_Income",
+  "Firearm_Fatalities_Rate",
+  "Mentally_Unhealthy_Days",
+  "Percent_Smokers",
+  "Percent_Obese",
+  "Percent_Physically_Inactive",
+  "Percent_Some_College",
+  "Cardiovascular_Rate"
+)
+
+# 2. Histograms p1–p9
+for (i in seq_along(predictors)) {
+  var <- predictors[i]
+  p <- ggplot(final_df, aes_string(x = var)) +
+    geom_histogram(color = "black", fill = "lightgray", bins = 30, na.rm = TRUE) +
+    labs(title = paste0("p", i, ": ", var), x = NULL, y = "Count") +
+    theme_minimal() +
+    theme(plot.title = element_text(size = 10, hjust = 0.5))
+  print(p)
+}
+
+# 3. Boxplots p10–p18
+for (i in seq_along(predictors)) {
+  var <- predictors[i]
+  idx <- i + length(predictors)
+  p <- ggplot(final_df, aes_string(y = var)) +
+    geom_boxplot(fill = "skyblue", outlier.color = "red", na.rm = TRUE) +
+    labs(title = paste0("p", idx, ": ", var), x = NULL, y = NULL) +
+    theme_minimal() +
+    theme(
+      axis.text.x = element_blank(),
+      axis.ticks.x = element_blank(),
+      plot.title = element_text(size = 10, hjust = 0.5)
+    )
+  print(p)
+}
+
+# 4. Scatter + linear fit p19–p27
+for (i in seq_along(predictors)) {
+  var <- predictors[i]
+  idx <- i + 2 * length(predictors)
+  p <- ggplot(df_scaled, aes_string(x = var, y = "Age_Adjusted_Mortality")) +
+    geom_point(alpha = 0.4, size = 0.8) +
+    geom_smooth(method = "lm", se = TRUE, color = "blue", size = 0.5) +
+    labs(
+      title = paste0("p", idx, ": ", var),
+      x = NULL, y = "Age-Adjusted Mortality"
+    ) +
+    theme_minimal() +
+    theme(plot.title = element_text(size = 10, hjust = 0.5))
+  print(p)
+}
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,671 @@
+---
+output:
+  html_document:
+    heme: flatly
+    code_folding: hide
+  pdf_document: default
+---
+
+```{=html}
+<style>
+h1.title {
+  text-align: center;
+}
+h3 {
+  text-align: center;
+}
+.page-break {
+    page-break-before: always;
+}
+</style>
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,message = FALSE, warning = FALSE)
+```
+
+#### 1. Define the Problem
+
+With the popularity of online education, more and more schools use online learning platforms for course resource release and learning management, so that students can more easily access to learning materials and get timely feedback. However, under the traditional teaching mode, teachers can only rely on the results of periodic tests to judge the performance of students, and it is difficult to find the students with learning difficulties in time. In order to solve this problem, this project **builds a multi-classification prediction model based on students' age, educational background, online clicking behavior and course engagement, which is used to predict students' final learning results (Pass, Fail, Withdrawn, Distinction)** .
+
+The model helps educators identify learning risks in advance during the course of the course, achieve targeted intervention and resource allocation, improve student completion rate and overall academic performance, and provide data-driven teaching optimization support for online education platforms, thereby comprehensively improving the learning experience and teaching quality.
+
+#### 2. Describe the Data
+
+#### 2.1 Data Source
+
+The dataset used in this project is the **Open University Learning Analytics Dataset (OULAD)**, available on Kaggle. It was collected from the UK's Open University and includes student data from 2013 to 2014. The dataset consists of multiple CSV files, including information about student demographics, assessments, course registrations, and virtual learning environment (VLE) interactions. These files are integrated to create a comprehensive view of student performance and behavior, which includes 32594 student-module records and over 40 features.
+
+#### 2.2 Feature Types
+
+The data set has categorical, numerical and temporal data. For detailed data dictionary, please see the appendix.
+
+#### 2.3 Data Challenges
+
+-   **Integration**: Multiple tables had to be merged using unique student and course identifiers, requiring careful handling of keys and null values.
+-   **Class Imbalance**: The target variable `final_result` is skewed, with “Pass” being the dominant class and “Distinction” or “Withdrawn” having fewer examples.
+-   **Missing and Noisy Values**: Some columns contain missing values or noisy data due to behavioral features.
+-   **Feature Redundancy**: Behavioral features such as specific resource click counts may be noisy or highly correlated, requiring dimensionality reduction or feature selection.
+-   **Multi-class Prediction**: The task involves predicting one of four outcomes, increasing the complexity compared to binary classification.
+
+#### 2.4 Dataset Justification
+
+This dataset meets **four** of the challenging criteria:
+
+-   **Large Size**: Over 30000 records.
+-   **Messy**: Including missing values and behavior features with potential outliers.
+-   **Integration**: Integrates multiple OULAD tables (demographics, courses, assessments, and VLE interactions) into one dataset.
+-   **Multi-class**: ‘Final_result’ includes four outcome classes (Pass, Fail, Withdrawn, Distinction), making this a multi-class classification task.
+
+#### 3. Clean & Prepare
+
+#### 3.1 Merge table
+
+Since the data is spread over seven tables, we first need to merge.
+
+#### 3.1.2 Merge studentVle to the vle
+
+Merge the two tables according to the attributes "code_module", "code_presentation", "id_site". Since no time series is involved, the time variable is transformed into total clicks, average daily clicks, and clicks of various learning resources to extract key learning behavior characteristics
+
+```{r Merge studentVle to the vle}
+# Load necessary packages
+library(dplyr)
+# Read data
+studentvle <- read.csv("./university_data/studentVle.csv", stringsAsFactors = FALSE)
+vle <- read.csv("./university_data/vle.csv", stringsAsFactors = FALSE)
+# deal with temp_vle table
+temp_vle <- studentvle %>%
+  left_join(vle, by = c("code_module", "code_presentation", "id_site")) %>%
+  group_by(id_student, code_module, code_presentation) %>%
+  summarise(
+    avg_day_click = round(sum(sum_click) / (max(date)-min(date)+1), 0),
+    total_click = sum(sum_click),
+    befor_modulopen_click = sum(ifelse(date < 0, sum_click, 0)),
+    after_modulopen_click = sum(ifelse(date >= 0, sum_click, 0)),
+    resource_sum_click = ifelse(sum(ifelse(activity_type == 'resource', sum_click, 0)) == 0,
+                                -1,
+                                sum(ifelse(activity_type == 'resource', sum_click, 0))),
+    oucontent_sum_click = ifelse(sum(ifelse(activity_type == 'oucontent', sum_click, 0)) == 0,
+                                 -1,
+                                 sum(ifelse(activity_type == 'oucontent', sum_click, 0))),
+    url_sum_click = ifelse(sum(ifelse(activity_type == 'url', sum_click, 0)) == 0,
+                           -1,
+                           sum(ifelse(activity_type == 'url', sum_click, 0))),
+    homepage_sum_click = ifelse(sum(ifelse(activity_type == 'homepage', sum_click, 0)) == 0,
+                                -1,
+                                sum(ifelse(activity_type == 'homepage', sum_click, 0))),
+    subpage_sum_click = ifelse(sum(ifelse(activity_type == 'subpage', sum_click, 0)) == 0,
+                               -1,
+                               sum(ifelse(activity_type == 'subpage', sum_click, 0))),
+    glossary_sum_click = ifelse(sum(ifelse(activity_type == 'glossary', sum_click, 0)) == 0,
+                                -1,
+                                sum(ifelse(activity_type == 'glossary', sum_click, 0))),
+    forumng_sum_click = ifelse(sum(ifelse(activity_type == 'forumng', sum_click, 0)) == 0,
+                               -1,
+                               sum(ifelse(activity_type == 'forumng', sum_click, 0))),
+    oucollaborate_sum_click = ifelse(sum(ifelse(activity_type == 'oucollaborate', sum_click, 0)) == 0,
+                                     -1,
+                                     sum(ifelse(activity_type == 'oucollaborate', sum_click, 0))),
+    dataplus_sum_click = ifelse(sum(ifelse(activity_type == 'dataplus', sum_click, 0)) == 0,
+                                -1,
+                                sum(ifelse(activity_type == 'dataplus', sum_click, 0))),
+    quiz_sum_click = ifelse(sum(ifelse(activity_type == 'quiz', sum_click, 0)) == 0,
+                            -1,
+                            sum(ifelse(activity_type == 'quiz', sum_click, 0))),
+    ouelluminate_sum_click = ifelse(sum(ifelse(activity_type == 'ouelluminate', sum_click, 0)) == 0,
+                                    -1,
+                                    sum(ifelse(activity_type == 'ouelluminate', sum_click, 0))),
+    sharedsubpage_sum_click = ifelse(sum(ifelse(activity_type == 'sharedsubpage', sum_click, 0)) == 0,
+                                     -1,
+                                     sum(ifelse(activity_type == 'sharedsubpage', sum_click, 0))),
+    questionnaire_sum_click = ifelse(sum(ifelse(activity_type == 'questionnaire', sum_click, 0)) == 0,
+                                     -1,
+                                     sum(ifelse(activity_type == 'questionnaire', sum_click, 0))),
+    page_sum_click = ifelse(sum(ifelse(activity_type == 'page', sum_click, 0)) == 0,
+                            -1,
+                            sum(ifelse(activity_type == 'page', sum_click, 0))),
+    externalquiz_sum_click = ifelse(sum(ifelse(activity_type == 'externalquiz', sum_click, 0)) == 0,
+                                    -1,
+                                    sum(ifelse(activity_type == 'externalquiz', sum_click, 0))),
+    ouwiki_sum_click = ifelse(sum(ifelse(activity_type == 'ouwiki', sum_click, 0)) == 0,
+                              -1,
+                              sum(ifelse(activity_type == 'ouwiki', sum_click, 0))),
+    dualpane_sum_click = ifelse(sum(ifelse(activity_type == 'dualpane', sum_click, 0)) == 0,
+                                -1,
+                                sum(ifelse(activity_type == 'dualpane', sum_click, 0))),
+    repeatactivity_sum_click = ifelse(sum(ifelse(activity_type == 'repeatactivity', sum_click, 0)) == 0,
+                                      -1,
+                                      sum(ifelse(activity_type == 'repeatactivity', sum_click, 0))),
+    folder_sum_click = ifelse(sum(ifelse(activity_type == 'folder', sum_click, 0)) == 0,
+                              -1,
+                              sum(ifelse(activity_type == 'folder', sum_click, 0))),
+    htmlactivity_sum_click = ifelse(sum(ifelse(activity_type == 'htmlactivity', sum_click, 0)) == 0,
+                                    -1,
+                                    sum(ifelse(activity_type == 'htmlactivity', sum_click, 0)))
+  ) %>%
+  ungroup()
+```
+
+#### 3.1.3 Merge Studentassessment and Assessmente Table
+
+Merge according to id_assessment and multiply the grade by the weight so that the total grade of this student can be obtained
+
+```{r Merge Studentassessment and Assessmente Table}
+# Loading data
+studentassessment <- read.csv("./university_data/studentAssessment.csv", stringsAsFactors = FALSE)
+assessments <- read.csv("./university_data/assessments.csv", stringsAsFactors = FALSE)
+
+# Make sure the relevant columns are numeric data
+studentassessment <- studentassessment %>%
+  mutate(score = as.numeric(score))
+assessments <- assessments %>%
+  mutate(weight = as.numeric(weight))
+# studentassessmen
+temp_assess <- studentassessment %>%
+  left_join(assessments, by = "id_assessment") %>%
+  group_by(id_student, code_module, code_presentation) %>%
+  summarise(
+    final_score = if (first(code_module) == "GGG") {
+      # For the GGG module, we directly take the mean of all scores without using weights.
+      round(mean(score, na.rm = TRUE), 1)
+    } else {
+      # For other modules, the calculation is based on 60% exam and 40% non-exam.
+      exam_score = ifelse(sum(ifelse(assessment_type == "Exam", weight, 0), na.rm = TRUE) == 0,
+                          NA,
+                          round(sum(ifelse(assessment_type == "Exam", score * weight, 0), na.rm = TRUE) / 100, 1)
+      )
+      coursework_score = ifelse(sum(ifelse(assessment_type != "Exam", weight, 0), na.rm = TRUE) == 0,
+                                NA,
+                                round(sum(ifelse(assessment_type != "Exam", score * weight, 0), na.rm = TRUE) / 100, 1)
+      )
+      if (!is.na(exam_score) & !is.na(coursework_score)) {
+        round(0.6 * exam_score + 0.4 * coursework_score, 1)
+      } else if (!is.na(exam_score)) {
+        exam_score
+      } else {
+        coursework_score
+      }
+    }
+  ) %>%
+  ungroup()
+```
+
+#### 3.1.4 Merge all tables
+
+Combine the two tables above with the studentinfo table to get basic information about each student and final grades and results for each student. Thus a total data set is obtained.
+
+```{r Merge all tables}
+studentinfo <- read.csv("./university_data/studentinfo.csv", stringsAsFactors = FALSE)
+studentregistration <- read.csv("./university_data/studentRegistration.csv", stringsAsFactors = FALSE)
+courses <- read.csv("./university_data/courses.csv", stringsAsFactors = FALSE)
+# Construct the final data set: Take studentinfo as the main table and left-join other data in sequence
+combine_data <- studentinfo %>%
+  left_join(temp_vle, by = c("id_student", "code_module", "code_presentation")) %>%
+  left_join(temp_assess, by = c("id_student", "code_module", "code_presentation")) %>%
+  left_join(studentregistration %>% 
+              select(id_student, code_module, code_presentation, date_registration, date_unregistration),
+            by = c("id_student", "code_module", "code_presentation")) %>%
+  left_join(courses %>% 
+              select(code_module, code_presentation, module_presentation_length),
+            by = c("code_module", "code_presentation"))
+```
+
+Through checking the combined data, it can be seen that the average score and the number of page clicks in the records of lines 29230 to 32594 are NA, indicating that these students are in the data table, but there is no platform behavior record, lack of test scores and learning data, and belong to invalid samples, so they are deleted.
+
+```{r save_csv}
+combine_data <- combine_data %>% filter(!is.na(avg_day_click))
+# Save the merged data as a CSV file
+write.csv(combine_data, "combine_data.csv", row.names = FALSE)
+```
+
+#### 3.2 Clean the DATA
+
+#### 3.2.1 Processing missing value for 'imd_band' feature
+
+In this part, group-wise Mode Imputation based on course and presentation is adopted. Under the premise that the sample size of each Group is greater than 30, the missing values of imd_band are filled in by groups. This approach enhance data consistency and reduce the bias introduced by global populating. This approach works by grouping data according to specific categorical variables, such as course codes and term codes, and then filling in missing values within each group using the most common values in that group (the mode).
+
+```{r imd-band-missing, eval=FALSE}
+# Define a function to find the mode
+getmode <- function(x) {
+  x <- x[!is.na(x)]
+  uniqx <- unique(x)
+  uniqx[which.max(tabulate(match(x, uniqx)))]
+}
+# Processing the imd_band column
+# Define grouping by attributes, sorted by importance (the first ones are more important, the last ones are less important)
+group_cols <- c("code_module","code_presentation","highest_education","region")
+
+# Define a list of valid imd_band values
+valid_imd_band <- c("20-30%", "30-40%", "10-20", "0-10%", "40-50%", "50-60%", "60-70%", "70-80%", "80-90%", "90-100%")
+
+# Find the indices of the rows where imd_band is missing or not in the valid list 
+# Note: %in% returns a logical vector
+missing_idx <- which(!(combine_data$imd_band %in% valid_imd_band))
+# Group and fill each imd_band row that does not meet the requirements
+for (idx in missing_idx) {
+  row_val <- combine_data[idx, ]
+  # Set a flag to check at the end if interpolation was done
+  filled <- FALSE
+  # From all grouping attributes to gradually reducing one attribute
+  for (i in length(group_cols):1) {
+    # Get the current group
+    candidate_cols <- group_cols[1:i]
+    # Construct matching conditions: the values of all candidate_cols in the candidate group are the same as the current row
+    condition <- apply(combine_data[candidate_cols],1, function(x) all(x == row_val[candidate_cols]))
+    candidate <- combine_data[condition & !is.na(combine_data$imd_band), ]
+    # The number of rows with all normal values is greater than 30
+    if (nrow(candidate) >= 30) {
+      impute_val <- getmode(candidate$imd_band)
+      # If the majority of the candidate group is "?", continue looping with the next group
+      if (impute_val == "?") {
+        next
+      }
+      combine_data$imd_band[idx] <- impute_val
+      filled <- TRUE
+      break
+    }
+  }
+  if (!filled) {
+    # If no matching records are found in all groups, using the global imputation (global majority not "?") .
+    global_mode <- getmode(combine_data$imd_band[combine_data$imd_band != "?"])
+    combine_data$imd_band[idx] <- global_mode
+  }
+}
+# Change "10-20" in imd_band to "10-20%" to keep it consistent
+combine_data$imd_band[combine_data$imd_band == "10-20"] <- "10-20%"
+```
+
+#### 3.2.2 Deal outliers values in score
+
+Some students were marked as "pass" due to the lack of test scores and only normal grades, resulting in a weighted total score of less than 40. In order to ensure the consistency of data, we corrected these outliers based on the final score mark.
+
+To improve the accuracy of the revision, we adopt the same group-wise Mode Imputation concept as previously mentioned, grouping them based on variables such as course, semester, educational background, and final result, and replace outliers with intra-group mean values when the sample size of each group is not less than 30. Thus, the correction results are representative and robust.
+
+```{r Deal outliers values in score, eval=FALSE}
+# Clean and impute data for final_score
+# Define a function to determine whether final_score is valid (for Withdrawn, only check for non-missing values)
+is_valid_final_score <- function(row) {
+  fs <- row["final_score"]
+  fr <- row["final_result"]
+  if (is.na(fs)) return(FALSE)
+  if (fr == "Fail" && as.numeric(fs) >= 40) return(FALSE)
+  if (fr %in% c("Pass", "Distinction") && as.numeric(fs) < 40) return(FALSE)
+  if (fr == "Distinction" && as.numeric(fs) < 80) return(FALSE)
+  # For Withdrawn cases, any non-missing value is considered valid
+  return(TRUE)
+}
+
+# Define the attribute list for grouping
+group_cols_final <- c("code_module","code_presentation","highest_education","final_result", "gender","age_band")
+
+# Identify rows where final_score is missing or invalid
+valid_fs <- apply(combine_data, 1, is_valid_final_score)
+error_idx <- which(!valid_fs)
+
+# Iterate through each erroneous row index to perform correction
+for (idx in error_idx) {
+  row_val <- combine_data[idx, ]
+  filled <- FALSE
+  # Define groupings; if no data is found, gradually reduce grouping constraints
+  for (i in length(group_cols_final):1) {
+    candidate_cols <- group_cols_final[1:i]
+    # Find all rows matching the erroneous row on the selected group columns
+    condition <- apply(combine_data[candidate_cols], 1, function(x) all(x == row_val[candidate_cols]))
+    # Remove rows with missing final_score values
+    candidate <- combine_data[condition & !is.na(combine_data$final_score), ]
+    # Filter candidates with valid final_score only
+    if (nrow(candidate) > 0) {
+      valid_candidate <- candidate[apply(candidate, 1, is_valid_final_score), ]
+      # If there are at least 30 valid records, use the mean value for imputation
+      if (nrow(valid_candidate) >= 30) {
+        impute_val <- mean(as.numeric(valid_candidate$final_score), na.rm = TRUE)
+        combine_data$final_score[idx] <- impute_val
+        filled <- TRUE
+        break
+      }
+    }
+  }
+  if (!filled) {
+    # If no valid group found, compute global mean for the current final_result category
+    category <- row_val$final_result
+    global_valid <- combine_data[apply(combine_data, 1, is_valid_final_score) & (combine_data$final_result == category), ]
+    if (nrow(global_valid) > 0) {
+      global_mean <- mean(as.numeric(global_valid$final_score), na.rm = TRUE)
+    } else {
+      global_mean <- NA
+    }
+    combine_data$final_score[idx] <- global_mean
+  }
+}
+
+# The last two columns are redundant, so only keep the registration date column
+combine_data <- combine_data[, -((ncol(combine_data)-1):ncol(combine_data))]
+
+# Save the final result to a CSV file
+write.csv(combine_data, "visualization_data.csv", row.names = FALSE)
+```
+
+#### 4. Explore & Visualize
+
+#### 4.1 The relationship between grades and clicks
+
+```{r  include=FALSE}
+
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(corrplot)
+library(gridExtra)
+
+# Read the clean dataset
+df <- read.csv('visualization.csv', stringsAsFactors = FALSE)
+```
+
+```{r fig.height=2, fig.width=12}
+p2 <- ggplot(df, aes(x = final_score, y = total_click)) +
+  geom_point(alpha = 0.7, color = "lightgreen") +
+  labs(x = "Final Score", y = "Total Clicks", title = "Results vs. Clicks") +
+  theme_minimal()
+p2
+```
+
+As can be seen from the scatter plot, final_score (horizontal) has an overall positive correlation with total_clicks (vertical) : when students score higher, they tend to get more clicks. However, the dense point cloud distribution in the figure also shows that there is a large dispersion between the two - the number of clicks can range from a few hundred to tens of thousands within the same score range. This means that clicks alone are not enough to directly and accurately infer grades, but the overall trend is still that students who "invest more time or click behavior" are more likely to achieve higher grades.
+
+#### 4.2 Percentage distribution of men and women under different final grades
+
+```{r fig.height=4, fig.width=16}
+# Generate a cross-tab: count the number of each gender for every final result
+ct_gender <- as.data.frame(table(df$final_result, df$gender))
+colnames(ct_gender) <- c("final_result", "gender", "Count")
+
+# Specify the desired order for final results
+desired_order <- c("Withdrawn", "Fail", "Pass", "Distinction")
+ct_gender$final_result <- factor(ct_gender$final_result, levels = desired_order)
+
+# Calculate percentage (normalized by gender)
+ct_gender <- ct_gender %>% 
+  group_by(gender) %>% 
+  mutate(Percentage = Count / sum(Count) * 100)
+
+# Plot a grouped bar chart using ggplot2
+p3 <- ggplot(ct_gender, aes(x = final_result, y = Percentage, fill = gender)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.35), width = 0.35) +
+  labs(x = "Result", y = "Percentage", title = "Result vs. Gender") +
+  scale_fill_manual(values = c("M" = "lightblue", "F" = "lightgreen"),
+                    labels = c("M" = "Male (M)", "F" = "Female (F)")) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Show boxplot of total clicks for both genders (log scale, bright colors)
+lower_lim <- quantile(df$total_click, 0.05, na.rm = TRUE)
+upper_lim <- quantile(df$total_click, 0.95, na.rm = TRUE)
+df_trimmed <- df %>%
+  mutate(total_click = ifelse(total_click < lower_lim, lower_lim, total_click),
+         total_click = ifelse(total_click > upper_lim, upper_lim, total_click))
+bright_palette <- c("M" = "#FF6F00", "F" = "#00E676")
+p4 <- ggplot(df_trimmed, aes(x = gender, y = total_click, fill = gender)) +
+  geom_boxplot(outlier.shape = NA) +
+  scale_fill_manual(values = bright_palette) +
+  scale_y_continuous(trans = "log10") +
+  labs(x = "Gender", y = "Total Click (log-scale)", title = "Clicks by Gender") +
+  theme_minimal()
+
+# Combine p3 and p4 into a 1×2 grid layout
+grid.arrange(p3, p4, ncol = 2)
+```
+
+The two charts clearly show that there are significant differences in academic engagement and performance between students of different genders. Male students perform more positively: some achieve a very high Distinction, but also have a higher dropout rate; Girls, on the other hand, are more concentrated in the intermediate level (Fail and Pass). Boys' clicks were significantly higher than girls', indicating that boys put more effort into the learning process, but this high investment does not necessarily translate into good grades, but may increase the risk of dropping classes. All in all, it reflects the difference in study habits between men and women. In response to the different characteristics of pressure and resource utilization, we should help boys to balance investment and pressure in teaching, and support girls to give full play to their stable advantages and further improve their performance.
+
+#### 4.3 The relationship between final achievement and region and poverty
+
+```{r fig.height=3, fig.width=16}
+# (a) Group by imd_band: count the number of final results within each imd_band, then convert to percentages
+ct_region1 <- df %>%
+  group_by(imd_band, final_result) %>%
+  summarise(Count = n(), .groups = "drop") %>%
+  group_by(imd_band) %>%
+  mutate(Percentage = Count / sum(Count) * 100) %>%
+  ungroup()
+
+# Sort imd_band by the starting number in ascending order
+get_start <- function(x) as.numeric(gsub("-.*", "", x))
+ordered_imd <- ct_region1 %>% 
+  distinct(imd_band) %>% 
+  arrange(get_start(imd_band)) %>% 
+  pull(imd_band)
+ct_region1$imd_band <- factor(ct_region1$imd_band, levels = ordered_imd)
+
+# Reorder final_result
+ct_region1$final_result <- factor(ct_region1$final_result, levels = desired_order)
+
+p5 <- ggplot(ct_region1, aes(x = imd_band, y = Percentage, fill = final_result)) +
+  geom_bar(stat = "identity") +
+  labs(x = "Poverty Level", y = "%", title = "Results vs. Poverty") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "right")
+
+# (b) Count imd_band distribution by region: percentage of each imd_band within a region
+ct_region2 <- df %>%
+  group_by(region, imd_band) %>%
+  summarise(Count = n(), .groups = "drop") %>%
+  group_by(region) %>%
+  mutate(Percentage = Count / sum(Count) * 100) %>%
+  ungroup()
+
+# Sort imd_band (using the ordered_imd from above)
+ct_region2$imd_band <- factor(ct_region2$imd_band, levels = ordered_imd)
+
+p6 <- ggplot(ct_region2, aes(x = region, y = Percentage, fill = imd_band)) +
+  geom_bar(stat = "identity") +
+  labs(x = "Region", y = "%", title = "Poverty Distribution by Region") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "right")
+
+# Combine p5 and p6 into a 1×2 grid layout
+grid.arrange(p5, p6, ncol = 2)
+```
+
+According to Wikipedia Contributors (2025), 0-10% represents the poorest areas. The chart shows that in the most deprived areas, the proportion of Withdrawn and failed courses is higher; In wealthier areas, the proportion of the first two gradually declines. This may indicate that students in poor areas are more susceptible to external pressure due to lack of adequate financial support, tutoring and a good family environment, leading to poor performance. In addition, regional differences may be reflected in the allocation of educational resources, socio-economic background and policy inputs, leading to changes in student achievement. Therefore, to improve the academic performance of poor students, it may be necessary to strengthen education policies and resources
+
+#### Education, age, poverty and outcomes
+
+```{r fig.height=8, fig.width=24}
+# Summarize final_result distribution by highest_education
+ct_edu <- df %>%
+  group_by(highest_education, final_result) %>%
+  summarise(Count = n(), .groups = "drop") %>%
+  group_by(highest_education) %>%
+  mutate(Percentage = Count / sum(Count) * 100) %>%
+  ungroup()
+
+# Define desired order for education and age bands
+ordered_edu <- c("No Formal quals", "Lower Than A Level",
+                 "A Level or Equivalent", "HE Qualification",
+                 "Post Graduate Qualification")
+ordered_age = c("0-35","35-55",">=55")
+
+# Convert education and result to factors with specified order
+ct_edu$highest_education <- factor(ct_edu$highest_education, levels = ordered_edu)
+ct_edu$final_result <- factor(ct_edu$final_result, levels = desired_order)
+
+# Create a stacked bar chart showing result distribution by education level
+p7 <- ggplot(ct_edu, aes(x = highest_education, y = Percentage, fill = final_result)) +
+  geom_bar(stat = "identity") +
+  labs(x = "Highest Education", y = "%", title = "Edu & Outcome") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), 
+        legend.position = "right")  
+
+# (a) Count by age: distribution of final results within each age group
+ct_age1 <- df %>%
+  group_by(age_band, final_result) %>%
+  summarise(Count = n(), .groups = "drop") %>%
+  group_by(age_band) %>%
+  mutate(Percentage = Count / sum(Count) * 100) %>%
+  ungroup()
+ct_age1$age_band <- factor(ct_age1$age_band, levels = ordered_age)
+ct_age1$final_result <- factor(ct_age1$final_result, levels = desired_order)
+
+p8 <- ggplot(ct_age1, aes(x = age_band, y = Percentage, fill = final_result)) +
+  geom_bar(stat = "identity") +
+  labs(x = "Age Band", y = "%", title = "Result Distribution by Age") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# (b) Count by age: distribution of poverty levels within each age group
+ct_age2 <- df %>%
+  group_by(age_band, imd_band) %>%
+  summarise(Count = n(), .groups = "drop") %>%
+  group_by(age_band) %>%
+  mutate(Percentage = Count / sum(Count) * 100) %>%
+  ungroup()
+ct_age2$age_band <- factor(ct_age2$age_band, levels = ordered_age)
+ct_age2$imd_band <- factor(ct_age2$imd_band, levels = ordered_imd)
+
+p9 <- ggplot(ct_age2, aes(x = age_band, y = Percentage, fill = imd_band)) +
+  geom_bar(stat = "identity") +
+  labs(x = "Age Band", y = "%", title = "Poverty by Age") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "right")
+
+# (c) Count by age: distribution of education levels within each age group
+ct_age3 <- df %>%
+  group_by(age_band, highest_education) %>%
+  summarise(Count = n(), .groups = "drop") %>%
+  group_by(age_band) %>%
+  mutate(Percentage = Count / sum(Count) * 100) %>%
+  ungroup()
+ct_age3$age_band <- factor(ct_age3$age_band, levels = ordered_age)
+ct_age3$highest_education <- factor(ct_age3$highest_education, levels = ordered_edu)
+
+p10 <- ggplot(ct_age3, aes(x = age_band, y = Percentage, fill = highest_education)) +
+  geom_bar(stat = "identity") +
+  labs(x = "Age Band", y = "%", title = "Edu by Age") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "right")
+
+# Combine p8, p9, p10 into a grid layout with 2 columns and 2 rows
+grid.arrange(p7, p8, p9, p10, ncol = 2, nrow = 2)
+```
+
+As can be seen from the chart, education level has a significant impact on learning results: those without formal academic qualifications have a higher proportion of Withdrawn and Fail, while those with postgraduate qualifications not only have a lower withdrawal rate, but also have the highest proportion of Distinction, which indicates that academic foundation is the key to achieving results. At the same time, the analysis of factors such as age and poverty level also found that although younger people have more energy, they may drop classes or fail due to financial pressure or lack of motivation
+
+On the one hand, the **gender** difference is obvious: male students tend to show a trend of polarization, with a higher proportion of excellent students and a higher proportion of dropping out and failing courses, which may be related to their extreme performance in learning engagement and coping with pressure.
+
+On the other hand, **economic background and poverty levels** play a key role: economically advantaged students have higher pass and excel rates due to greater access to resources and tutoring, while students from poorer areas are more likely to drop out and fail classes due to inadequate resources and family pressures In addition, **the level of education** is also an important factor in determining the score. The group with high education usually has a solid academic foundation and better self-management ability, so it is easier to get excellent results. Finally, the **age** factor should not be ignored.
+
+#### 5. Plan for Evaluation
+
+Our dataset involves a four-class classification problem with a hierarchical structure, characterized by significant class imbalance, especially the "Pass" category which occupies the largest proportion. Therefore, relying solely on Accuracy as a model evaluation index is likely to be misleading, because as long as the model tends to predict the category with the largest number of samples, it can obtain a high accuracy rate, which cannot truly reflect the recognition ability of the model in various categories. Therefore, we adopt a more comprehensive index system that is more suitable for the task of unbalanced classification.
+
+We first assessed five basic classification models using **cross-validation (CV)**. For model evaluation, we employed a diverse set of metrics including the **confusion matrix, Precision, Recall, F1-score, 1-Specificity, ROC curves, and AUC**:
+
+-   **The confusion matrix** provides a visual representation of classification results across all categories, highlighting specific patterns of misclassification.
+-   **Precision and Recall** evaluate the correctness and completeness of positive predictions, respectively.
+-   **F1-score**, as the harmonic mean of the two, can comprehensively measure the classification ability of the model under unbalanced samples.
+-   **1-Specificity (false positive rate)** helps capture the false positive rate of the model to further identify whether the model is biased towards the main class.
+
+In order to evaluate the differentiation ability of the model under multiple classes of unbalanced data, we used the **"class-pairing"** method to **plot the ROC curve and calculate the AUC value**. The specific practice is below:
+
+-   
+
+    a.  Selected every possible pair of the four classes to form binary classification subsets.
+
+-   
+
+    b.  Trained the model on each pair.
+
+-   
+
+    c.  Computed prediction probabilities, plotted the ROC curve, and calculated the corresponding AUC.
+
+-   
+
+    d.  Averaged all pairwise AUC values to derive an overall performance indicator.
+
+This way can capture the distinction effect between different categories more precisely, and avoid covering up the shortcomings of the model in other categories due to the high proportion of the main class.
+
+After evaluating all base models, we will sselect the best-performing model as a candidate for prediction, and and apply 10-fold cross-validation to tune its hyperparameters. Through the above comprehensive index system and tuning strategy, we hope to improve the model's ability to distinguish between different categories and achieve a more fair and effective student performance prediction.
+
+#### 6. Choice of Classification Models
+
+In order to effectively model and predict the final outcomes of students using our dataset, we have carefully selected classification models based on the nature of the data and tasks. The dataset contains mixed-type features, including numerical scores and click behaviors, as well as categorical attributes like course code, gender, and education background. The target variable final_result is a multi-class classification task with potentially complex nonlinear relationships. Therefore, suitable models should handle high-dimensional, multi-class, and nonlinear data effectively.
+
+#### 6.1 Support Vector Machine (SVM)
+
+SVM performs particularly well in such situations. It maps features to high-dimensional space through kernel functions (such as RBF kernel) to capture nonlinear boundaries effectively. At the same time, because it only relies on support vectors, it has good robustness and generalization ability, and can maintain stable performance in real data with more noise. In addition, SVM can be naturally extended to multi-classification models through strategies such as One-vs-Rest, which fits the classification requirements of final_result.
+
+#### 6.2 K-Nearest Neighbors (KNN)
+
+KNN starts from another angle and realizes classification through local distance measurement. Since student achievement is often highly correlated with their background characteristics and learning behavior, KNN can predict outcomes by labeling “adjacent samples,” making full use of local similarity structures commonly found in educational data. KNN is simple in structure and does not require an explicit training stage, making it suitable for data after normalization and missing value imputation. It can also handle multi-class problems well.
+
+#### 6.3 Random Forest (RF)
+
+Random Forest was chosen because of its robustness and ability to handle high-dimensional, non-linear, and categorical data. Given the nature of our dataset (including a large number of numerical features), Random Forest provides robustness through ensemble learning, handles missing values relatively well, and provides feature importance scores. It has the ability to model complex nonlinear relationships without extensive preprocessing, making it a practical and effective choice for our prediction task.
+
+#### 6.4 Multi-Layer Perceptron (MLP)
+
+The Multi-Layer Perceptron (MLP) effectively captures complex non-linear relationships between click behaviors and learning outcomes. Through its multi-layer architecture, MLP automatically learns deep interaction patterns among interconnected features such as total clicks and course content clicks, enabling more accurate prediction of learning results.
+
+#### 6.5 XGBoost
+
+XGBoost, as an ensemble tree model, excels at handling categorical features like educational background and age groups present in this dataset, while automatically identifying relationships between important features (such as total clicks and average daily click frequency). Its regularization mechanism helps prevent overfitting, making it ideal for managing the high individual variance in learning behaviors and high feature correlations in this dataset.
+
+```{=html}
+<div class="page-break"></div>
+```
+
+### Reference
+
+1.  thedevastator. (n.d.). *Open University Learning Analytics Dataset* [Data set]. Kaggle. <https://www.kaggle.com/datasets/thedevastator/open-university-learning-analytics-dataset>
+
+2.  Wikipedia contributors. (2025). *Deprivation index*. In Wikipedia. <https://en.wikipedia.org/wiki/Deprivation_index>
+
+### Data Dictionary
+
+| Variable Name | Data Type | Sample Value | Description | Category |
+|:-------------|:-------------|:-------------|:---------------|:-------------|
+| code_module | string | AAA | Code of the course module the student is enrolled in. | Categorical |
+| code_presentation | string | 2013J | Presentation/term code (e.g., year and season). | Categorical |
+| id_student | int64 | 11391 | Unique identifier for each student. | Categorical |
+| gender | string | M | Student's gender (M = Male, F = Female). | Categorical |
+| region | string | East Anglian Region | Geographical region of the student in the UK. | Categorical |
+| highest_education | string | HE Qualification | Highest education level before enrolling. | Categorical |
+| imd_band | string | 90-100% | Index of Multiple Deprivation (socio-economic tier). | Categorical |
+| age_band | string | 55\<= | Age range category of the student. | Categorical |
+| num_of_prev_attempts | int64 | 0 | Number of previous attempts at this module. | Numerical |
+| studied_credits | int64 | 240 | Total number of credits the student has studied. | Numerical |
+| disability | string | N | Indicates if the student has declared a disability (Y/N). | Categorical |
+| final_result | string | Pass | Final result in the module (Pass/Fail/Withdraw/Distinction). | Categorical |
+| avg_day_click | float64 | 4 | Average number of clicks per day during the course. | Numerical |
+| total_click | float64 | 934 | Total number of interactions (clicks) during the course. | Numerical |
+| befor_modulopen_click | float64 | 98 | Number of clicks before the module officially started. | Numerical |
+| after_modulopen_click | float64 | 836 | Number of clicks after the module officially started. | Numerical |
+| resource_sum_click | float64 | 13 | Total clicks on 'Resource' activity type. | Numerical |
+| oucontent_sum_click | float64 | 553 | Total clicks on 'Oucontent' activity type. | Numerical |
+| url_sum_click | float64 | 5 | Total clicks on 'Url' activity type. | Numerical |
+| homepage_sum_click | float64 | 138 | Total clicks on 'Homepage' activity type. | Numerical |
+| subpage_sum_click | float64 | 32 | Total clicks on 'Subpage' activity type. | Numerical |
+| glossary_sum_click | float64 | -1 | Total clicks on 'Glossary' activity type (**-1 means no access**). | Numerical |
+| forumng_sum_click | float64 | 193 | Total clicks on 'Forumng' activity type. | Numerical |
+| oucollaborate_sum_click | float64 | -1 | Total clicks on 'Oucollaborate' activity type (**-1 = missing**). | Numerical |
+| dataplus_sum_click | float64 | -1 | Total clicks on 'Dataplus' activity type. | Numerical |
+| quiz_sum_click | float64 | -1 | Total clicks on 'Quiz' activity type. | Numerical |
+| ouelluminate_sum_click | float64 | -1 | Total clicks on 'Ouelluminate' activity type. | Numerical |
+| sharedsubpage_sum_click | float64 | -1 | Total clicks on 'Sharedsubpage' activity type. | Numerical |
+| questionnaire_sum_click | float64 | -1 | Total clicks on 'Questionnaire' activity type. | Numerical |
+| page_sum_click | float64 | -1 | Total clicks on 'Page' activity type. | Numerical |
+| externalquiz_sum_click | float64 | -1 | Total clicks on 'Externalquiz' activity type. | Numerical |
+| ouwiki_sum_click | float64 | -1 | Total clicks on 'Ouwiki' activity type. | Numerical |
+| dualpane_sum_click | float64 | -1 | Total clicks on 'Dualpane' activity type. | Numerical |
+| repeatactivity_sum_click | float64 | -1 | Total clicks on 'Repeatactivity' activity type. | Numerical |
+| folder_sum_click | float64 | -1 | Total clicks on 'Folder' activity type. | Numerical |
+| htmlactivity_sum_click | float64 | -1 | Total clicks on 'Htmlactivity' activity type. | Numerical |
+| final_score | float64 | 82.4 | Final numeric score of the student (0–100). | Numerical |
+| date_registration | int64 | -159 | Days before module start when student registered. | Temporal |
+| date_unregistration | string | ? | Days from module start when student unregistered (**? = missing**). | Temporal |
+| module_presentation_length | int64 | 268 | Length of the module presentation in days. | Numerical |

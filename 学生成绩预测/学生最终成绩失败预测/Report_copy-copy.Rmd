@@ -1,0 +1,1244 @@
+---
+title: "Identifying Failure Risk in Students"
+output:
+  html_document:
+    heme: flatly
+    code_folding: hide
+    titlepage: true
+  word_document: default
+  pdf_document:
+    latex_engine: xelatex
+    titlepage: true
+---
+
+```{=html}
+<style>
+h1.title {
+  text-align: center;
+}
+
+.page-break {
+    page-break-before: always;
+}
+</style>
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,message = FALSE, warning = FALSE)
+```
+
+
+```{r}
+# set environment , load package
+library(tidyverse)
+library(caret)
+library(tidyr)
+library(forcats)
+library(dplyr)
+library(recipes)
+library(readr)
+library(randomForest)
+library(glmnet)
+library(xgboost)
+library(kknn)
+library(yardstick)
+library(e1071)
+library(pROC)
+library(ggplot2)
+library(stringr)
+library(purrr)
+library(gridExtra)
+library(knitr)
+library(cowplot)
+library(ggpubr)
+library(qqplotr) 
+
+```
+
+### 1. Introduction
+
+With the development of mobile technology and online education, teachers have also begun to upload materials to online platforms for students' access at any time. However, due to the lack of supervision, some students cannot make effective use of these resources, which affects the learning effect. This essay builds a prediction model based on the Open University Learning Analytics Dataset (OULAD). Through students' interactive behaviours in the virtual learning environment (VLE) and personal information, students who may fail in the course can be identified by the model and early warnings can be issued, thereby prompting them to adjust their learning strategies in a timely manner and increase the pass rate.
+
+This study is based on the following assumption: The interaction between students and VLE, personal information (such as age, and educational level), and course attributes (such as data type, and assessment model) all have a significant impact on the final grades. In order to improve the accuracy and stability of the prediction, we will use five models for model training and select the optimal model. And strictly prevent information leakage during the data preprocessing and modelling process to ensure the reliability of the model. Provide decision support for teaching management and academic tutoring in colleges and universities.
+
+### 2. Data and Preprocessing
+
+#### 2.1 Data Sources and Description
+
+The dataset used in this project is the **Open University Learning Analytics Dataset (OULAD)**, which is available on Kaggle. This dataset includes student data from 2013 to 2014 and consists of multiple CSV files. It contains basic information about students, information on the interaction of the virtual learning environment (VLE), and course information.
+
+The dataset consists of two main variable types. Categorical variables include demographic information such as gender, region, age group, and educational level; course information such as course code, and course presentation code; socioeconomic status indicators like the IMD index; and result categories. Numerical variables comprise assessment scores (final score), VLE interactions including total and average clicks, and learning time metrics like submission dates and study time. For a detailed data dictionary, please see the appendix.
+
+#### 2.2 Merge all of data file
+
+```{r eval=FALSE}
+# Read data
+studentvle <- read.csv("./university_data/studentVle.csv", stringsAsFactors = FALSE)
+vle <- read.csv("./university_data/vle.csv", stringsAsFactors = FALSE)
+# deal with temp_vle table
+temp_vle <- studentvle %>%
+  left_join(vle, by = c("code_module", "code_presentation", "id_site")) %>%
+  group_by(id_student, code_module, code_presentation) %>%
+  summarise(
+    avg_day_click = round(sum(sum_click) / (max(date)-min(date)+1), 0),
+    total_click = sum(sum_click),
+    befor_modulopen_click = sum(ifelse(date < 0, sum_click, 0)),
+    after_modulopen_click = sum(ifelse(date >= 0, sum_click, 0)),
+    resource_sum_click = ifelse(sum(ifelse(activity_type == 'resource', sum_click, 0)) == 0,
+                                -1,
+                                sum(ifelse(activity_type == 'resource', sum_click, 0))),
+    oucontent_sum_click = ifelse(sum(ifelse(activity_type == 'oucontent', sum_click, 0)) == 0,
+                                 -1,
+                                 sum(ifelse(activity_type == 'oucontent', sum_click, 0))),
+    url_sum_click = ifelse(sum(ifelse(activity_type == 'url', sum_click, 0)) == 0,
+                           -1,
+                           sum(ifelse(activity_type == 'url', sum_click, 0))),
+    homepage_sum_click = ifelse(sum(ifelse(activity_type == 'homepage', sum_click, 0)) == 0,
+                                -1,
+                                sum(ifelse(activity_type == 'homepage', sum_click, 0))),
+    subpage_sum_click = ifelse(sum(ifelse(activity_type == 'subpage', sum_click, 0)) == 0,
+                               -1,
+                               sum(ifelse(activity_type == 'subpage', sum_click, 0))),
+    glossary_sum_click = ifelse(sum(ifelse(activity_type == 'glossary', sum_click, 0)) == 0,
+                                -1,
+                                sum(ifelse(activity_type == 'glossary', sum_click, 0))),
+    forumng_sum_click = ifelse(sum(ifelse(activity_type == 'forumng', sum_click, 0)) == 0,
+                               -1,
+                               sum(ifelse(activity_type == 'forumng', sum_click, 0))),
+    oucollaborate_sum_click = ifelse(sum(ifelse(activity_type == 'oucollaborate', sum_click, 0)) == 0,
+                                     -1,
+                                     sum(ifelse(activity_type == 'oucollaborate', sum_click, 0))),
+    dataplus_sum_click = ifelse(sum(ifelse(activity_type == 'dataplus', sum_click, 0)) == 0,
+                                -1,
+                                sum(ifelse(activity_type == 'dataplus', sum_click, 0))),
+    quiz_sum_click = ifelse(sum(ifelse(activity_type == 'quiz', sum_click, 0)) == 0,
+                            -1,
+                            sum(ifelse(activity_type == 'quiz', sum_click, 0))),
+    ouelluminate_sum_click = ifelse(sum(ifelse(activity_type == 'ouelluminate', sum_click, 0)) == 0,
+                                    -1,
+                                    sum(ifelse(activity_type == 'ouelluminate', sum_click, 0))),
+    sharedsubpage_sum_click = ifelse(sum(ifelse(activity_type == 'sharedsubpage', sum_click, 0)) == 0,
+                                     -1,
+                                     sum(ifelse(activity_type == 'sharedsubpage', sum_click, 0))),
+    questionnaire_sum_click = ifelse(sum(ifelse(activity_type == 'questionnaire', sum_click, 0)) == 0,
+                                     -1,
+                                     sum(ifelse(activity_type == 'questionnaire', sum_click, 0))),
+    page_sum_click = ifelse(sum(ifelse(activity_type == 'page', sum_click, 0)) == 0,
+                            -1,
+                            sum(ifelse(activity_type == 'page', sum_click, 0))),
+    externalquiz_sum_click = ifelse(sum(ifelse(activity_type == 'externalquiz', sum_click, 0)) == 0,
+                                    -1,
+                                    sum(ifelse(activity_type == 'externalquiz', sum_click, 0))),
+    ouwiki_sum_click = ifelse(sum(ifelse(activity_type == 'ouwiki', sum_click, 0)) == 0,
+                              -1,
+                              sum(ifelse(activity_type == 'ouwiki', sum_click, 0))),
+    dualpane_sum_click = ifelse(sum(ifelse(activity_type == 'dualpane', sum_click, 0)) == 0,
+                                -1,
+                                sum(ifelse(activity_type == 'dualpane', sum_click, 0))),
+    repeatactivity_sum_click = ifelse(sum(ifelse(activity_type == 'repeatactivity', sum_click, 0)) == 0,
+                                      -1,
+                                      sum(ifelse(activity_type == 'repeatactivity', sum_click, 0))),
+    folder_sum_click = ifelse(sum(ifelse(activity_type == 'folder', sum_click, 0)) == 0,
+                              -1,
+                              sum(ifelse(activity_type == 'folder', sum_click, 0))),
+    htmlactivity_sum_click = ifelse(sum(ifelse(activity_type == 'htmlactivity', sum_click, 0)) == 0,
+                                    -1,
+                                    sum(ifelse(activity_type == 'htmlactivity', sum_click, 0)))
+  ) %>%
+  ungroup()
+
+# Loading data
+studentassessment <- read.csv("./university_data/studentAssessment.csv", stringsAsFactors = FALSE)
+assessments <- read.csv("./university_data/assessments.csv", stringsAsFactors = FALSE)
+
+# Make sure the relevant columns are numeric data
+studentassessment <- studentassessment %>%
+  mutate(score = as.numeric(score))
+assessments <- assessments %>%
+  mutate(weight = as.numeric(weight))
+# studentassessmen
+temp_assess <- studentassessment %>%
+  left_join(assessments, by = "id_assessment") %>%
+  group_by(id_student, code_module, code_presentation) %>%
+  summarise(
+    final_score = if (first(code_module) == "GGG") {
+      # For the GGG module, we directly take the mean of all scores without using weights.
+      round(mean(score, na.rm = TRUE), 1)
+    } else {
+      # For other modules, the calculation is based on 60% exam and 40% non-exam.
+      exam_score = ifelse(sum(ifelse(assessment_type == "Exam", weight, 0), na.rm = TRUE) == 0,
+                          NA,
+                          round(sum(ifelse(assessment_type == "Exam", score * weight, 0), na.rm = TRUE) / 100, 1)
+      )
+      coursework_score = ifelse(sum(ifelse(assessment_type != "Exam", weight, 0), na.rm = TRUE) == 0,
+                                NA,
+                                round(sum(ifelse(assessment_type != "Exam", score * weight, 0), na.rm = TRUE) / 100, 1)
+      )
+      if (!is.na(exam_score) & !is.na(coursework_score)) {
+        round(0.6 * exam_score + 0.4 * coursework_score, 1)
+      } else if (!is.na(exam_score)) {
+        exam_score
+      } else {
+        coursework_score
+      }
+    }
+  ) %>%
+  ungroup()
+
+studentinfo <- read.csv("./university_data/studentinfo.csv", stringsAsFactors = FALSE)
+studentregistration <- read.csv("./university_data/studentRegistration.csv", stringsAsFactors = FALSE)
+courses <- read.csv("./university_data/courses.csv", stringsAsFactors = FALSE)
+# Construct the final data set: Take studentinfo as the main table and left-join other data in sequence
+combine_data <- studentinfo %>%
+  left_join(temp_vle, by = c("id_student", "code_module", "code_presentation")) %>%
+  left_join(temp_assess, by = c("id_student", "code_module", "code_presentation")) %>%
+  left_join(studentregistration %>% 
+              select(id_student, code_module, code_presentation, date_registration, date_unregistration),
+            by = c("id_student", "code_module", "code_presentation")) %>%
+  left_join(courses %>% 
+              select(code_module, code_presentation, module_presentation_length),
+            by = c("code_module", "code_presentation"))
+
+combine_data <- combine_data %>% filter(!is.na(avg_day_click))
+# Save the merged data as a CSV file
+write.csv(combine_data, "combine_data.csv", row.names = FALSE)
+```
+
+Extract students' interactive behaviors (such as total clicks and average daily clicks), course and assignment grades, as well as personal information (including age, gender, educational background, etc.) in the virtual learning environment (VLE) from the dataset. Integrate these data tables into a structured data set and eliminate the samples that lack valid click records. Finally, the results are saved as the combine_data.csv file to form a comprehensive basic data set for subsequent modelling and data analysis.
+
+#### 2.3 Processing data for EDA
+
+Firstly, the data used for EDA analysis was processed, with a focus on addressing the issues of missing values and outliers in the two columns of imd_band (socioeconomic background) and final_score (final score).
+
+For imd_band, we set legal values, due to the data originating from different academic years and courses. Therefore, the group of "the same course, the same semester, final results, etc." was adopted as the grouping criterion. For missing or invalid records, the mode should be extracted from the same group first for filling. If there are insufficient valid samples within the group, the global mode is used for completion to maintain data consistency.
+
+For the final score field, we have set a set of logical rules to determine the rationality of the scores (such as failing scores should be lower than 40 points, and Distinction scores should not be lower than 80 points, etc.). For missing or illogical grades, they are also grouped based on dimensions such as courses, semesters, and educational levels. On the premise that the number of valid grades within the group is no less than 30, the average value within the group is used to fill in. If the conditions cannot be met, the global mean of the corresponding result will be used.
+
+After the data processing is completed, the result is saved as visualization_data.csv to provide clean and complete basic data for the subsequent exploratory data analysis (EDA).
+
+```{r eval=FALSE}
+combine_data <- read.csv("combine_data.csv", stringsAsFactors = FALSE)
+
+# Define a function to find the mode
+getmode <- function(x) {
+  x <- x[!is.na(x)]
+  uniqx <- unique(x)
+  uniqx[which.max(tabulate(match(x, uniqx)))]
+}
+# Processing the imd_band column
+# Define grouping by attributes, sorted by importance (the first ones are more important, the last ones are less important)
+group_cols <- c("code_module", "code_presentation", "final_result","highest_education", "region","gender")
+
+# Define a list of valid imd_band values
+valid_imd_band <- c("20-30%", "30-40%", "10-20", "0-10%", "40-50%", "50-60%", "60-70%", "70-80%", "80-90%", "90-100%")
+
+# Find the indices of the rows where imd_band is missing or not in the valid list 
+# Note: %in% returns a logical vector
+missing_idx <- which(!(combine_data$imd_band %in% valid_imd_band))
+# Group and fill each imd_band row that does not meet the requirements
+for (idx in missing_idx) {
+  row_val <- combine_data[idx, ]
+  # Set a flag to check at the end if interpolation was done
+  filled <- FALSE
+  # From all grouping attributes to gradually reducing one attribute
+  for (i in length(group_cols):1) {
+    # Get the current group
+    candidate_cols <- group_cols[1:i]
+    # Construct matching conditions: the values of all candidate_cols in the candidate group are the same as the current row
+    condition <- apply(combine_data[candidate_cols],1, function(x) all(x == row_val[candidate_cols]))
+    candidate <- combine_data[condition & !is.na(combine_data$imd_band), ]
+    # The number of rows with all normal values is greater than 30
+    if (nrow(candidate) >= 30) {
+      impute_val <- getmode(candidate$imd_band)
+      # If the majority of the candidate group is "?", continue looping with the next group
+      if (impute_val == "?") {
+        next
+      }
+      combine_data$imd_band[idx] <- impute_val
+      filled <- TRUE
+      break
+    }
+  }
+  if (!filled) {
+    # If no matching records are found in all groups, using the global imputation (global majority not "?") .
+    global_mode <- getmode(combine_data$imd_band[combine_data$imd_band != "?"])
+    combine_data$imd_band[idx] <- global_mode
+  }
+}
+# Change "10-20" in imd_band to "10-20%" to keep it consistent
+combine_data$imd_band[combine_data$imd_band == "10-20"] <- "10-20%"
+
+# Clean and impute data for final_score
+# Define a function to determine whether final_score is valid (for Withdrawn, only check for non-missing values)
+is_valid_final_score <- function(row) {
+  fs <- row["final_score"]
+  fr <- row["final_result"]
+  if (is.na(fs)) return(FALSE)
+  if (fr == "Fail" && as.numeric(fs) >= 40) return(FALSE)
+  if (fr %in% c("Pass", "Distinction") && as.numeric(fs) < 40) return(FALSE)
+  if (fr == "Distinction" && as.numeric(fs) < 80) return(FALSE)
+  # For Withdrawn cases, any non-missing value is considered valid
+  return(TRUE)
+}
+
+# Define the attribute list for grouping
+group_cols_final <- c( "code_module", "code_presentation", "final_result","highest_education", "region","gender")
+
+# Identify rows where final_score is missing or invalid
+valid_fs <- apply(combine_data, 1, is_valid_final_score)
+error_idx <- which(!valid_fs)
+
+# Iterate through each erroneous row index to perform correction
+for (idx in error_idx) {
+  row_val <- combine_data[idx, ]
+  filled <- FALSE
+  # Define groupings; if no data is found, gradually reduce grouping constraints
+  for (i in length(group_cols_final):1) {
+    candidate_cols <- group_cols_final[1:i]
+    # Find all rows matching the erroneous row on the selected group columns
+    condition <- apply(combine_data[candidate_cols], 1, function(x) all(x == row_val[candidate_cols]))
+    # Remove rows with missing final_score values
+    candidate <- combine_data[condition & !is.na(combine_data$final_score), ]
+    # Filter candidates with valid final_score only
+    if (nrow(candidate) > 0) {
+      valid_candidate <- candidate[apply(candidate, 1, is_valid_final_score), ]
+      # If there are at least 30 valid records, use the mean value for imputation
+      if (nrow(valid_candidate) >= 30) {
+        impute_val <- mean(as.numeric(valid_candidate$final_score), na.rm = TRUE)
+        combine_data$final_score[idx] <- impute_val
+        filled <- TRUE
+        break
+      }
+    }
+  }
+  if (!filled) {
+    # If no valid group found, compute global mean for the current final_result category
+    category <- row_val$final_result
+    global_valid <- combine_data[apply(combine_data, 1, is_valid_final_score) & (combine_data$final_result == category), ]
+    if (nrow(global_valid) > 0) {
+      global_mean <- mean(as.numeric(global_valid$final_score), na.rm = TRUE)
+    } else {
+      global_mean <- NA
+    }
+    combine_data$final_score[idx] <- global_mean
+  }
+}
+
+# The last two columns are redundant, so only keep the registration date column
+combine_data <- combine_data[, -((ncol(combine_data)-1):ncol(combine_data))]
+
+# Save the final result to a CSV file
+write.csv(combine_data, "visualization_data.csv", row.names = FALSE)
+
+```
+
+#### 2.4 Processing data for Modeling
+
+To avoid data leakage, we divide the original combine_data.csv into the training set and the test set at a ratio of 80% and 20%. No pre-processing is carried out before the division to ensure that the test set is completely isolated during the modelling process.
+
+Subsequently, only missing value filling and outlier processing were carried out on the training set, and the method was consistent with that of the EDA stage. After the processing is completed, the mapping and statistical parameters generated by the training set are applied to the test set, thereby maintaining consistency and preventing information leakage, and improving the generalization ability of the model.
+
+In terms of feature engineering, imd_band reflects the degree of regional poverty (for example, "0-10%" indicates the poorest) (Wikipedia Contributors, 2025), and therefore reverse coding is adopted; Age groups and educational qualifications are encoded in sequence, while unordered category variables such as gender and region are encoded using One-Hot. The numerical features have been standardized to eliminate dimensional differences.
+
+Finally, the processed training set and test set are saved as train.csv and test.csv respectively, providing a structurally unified and highly reliable data basis for the subsequent model training.
+
+```{r eval=FALSE}
+df <- read_csv("combine_data.csv")
+
+set.seed(42)
+train_idx <- createDataPartition(df$final_result, p = 0.8, list = FALSE)
+train_df <- df[train_idx, ]
+test_df  <- df[-train_idx, ]
+highest_education_map <- c(
+  "No Formal quals" = 1, "Lower Than A Level" = 2, "A Level or Equivalent" = 3,
+  "HE Qualification" = 4, "Post Graduate Qualification" = 5
+)
+imd_band_order <- c(
+  "90-100%", "80-90%", "70-80%", "60-70%", "50-60%", "40-50%",
+  "30-40%", "20-30%", "10-20%", "0-10%"
+)
+imd_band_map <- setNames(seq_along(imd_band_order), imd_band_order)
+age_band_map <- c("0-35" = 1, "35-55" = 2, "55<=" = 3)
+disability_map <- c("N" = 0, "Y" = 1)
+final_result_map <- c("Withdrawn" = 1, "Fail" = 2, "Pass" = 3, "Distinction" = 4)
+
+valid_imd_band <- imd_band_order
+
+impute_imd_band <- function(df_sub, ref_df, group_cols) {
+  df_sub$imd_band_impute_group <- NA
+  for (i in 1:nrow(df_sub)) {
+    row <- df_sub[i, ]
+    if (row$imd_band %in% valid_imd_band) next
+    filled <- FALSE
+    for (n in length(group_cols):1) {
+      cols <- group_cols[1:n]
+      mask <- ref_df %>%
+        filter(imd_band %in% valid_imd_band) %>%
+        filter(across(all_of(cols), ~ . == row[[cols]]))
+      if (nrow(mask) >= 30) {
+        mode_val <- mask$imd_band %>% as.character() %>% sort() %>% tail(1)
+        if (mode_val != "?") {
+          df_sub$imd_band[i] <- mode_val
+          df_sub$imd_band_impute_group[i] <- paste(cols, collapse = "|")
+          filled <- TRUE
+          break
+        }
+      }
+    }
+    if (!filled) {
+      global_mode <- ref_df$imd_band[ref_df$imd_band %in% valid_imd_band] %>% as.character() %>% sort() %>% tail(1)
+      df_sub$imd_band[i] <- global_mode
+      df_sub$imd_band_impute_group[i] <- "global"
+    }
+  }
+  df_sub
+}
+
+group_cols <- c("code_module", "code_presentation", "final_result","highest_education", "region","gender")
+train_df <- impute_imd_band(train_df, train_df, group_cols)
+test_df  <- impute_imd_band(test_df, train_df, group_cols)
+
+train_df$imd_band[train_df$imd_band == "10-20"] <- "10-20%"
+test_df$imd_band[test_df$imd_band == "10-20"]   <- "10-20%"
+
+train_df <- train_df[, 4:(ncol(train_df)-6)]
+test_df  <- test_df[, 4:(ncol(test_df)-6)]
+
+train_df[train_df == -1] <- 0
+test_df[test_df == -1]   <- 0
+
+dummies <- dummyVars(~ gender + region, data = train_df)
+train_dummies <- predict(dummies, train_df)
+test_dummies  <- predict(dummies, test_df)
+train_df <- bind_cols(train_df %>% select(-gender, -region), as.data.frame(train_dummies))
+test_df  <- bind_cols(test_df  %>% select(-gender, -region), as.data.frame(test_dummies))
+# Ensure test set columns match training set
+test_df <- test_df[, names(train_df)]
+
+# Apply ordinal mapping to ordinal categorical variables
+train_df <- train_df %>%
+  mutate(
+    highest_education = highest_education_map[highest_education],
+    imd_band = imd_band_map[imd_band],
+    age_band = age_band_map[age_band],
+    disability = disability_map[disability],
+    final_result = final_result_map[final_result]
+  )
+test_df <- test_df %>%
+  mutate(
+    highest_education = highest_education_map[highest_education],
+    imd_band = imd_band_map[imd_band],
+    age_band = age_band_map[age_band],
+    disability = disability_map[disability],
+    final_result = final_result_map[final_result]
+  )
+
+ordinal_cols <- c("highest_education", "imd_band", "age_band", "disability", "final_result")
+numeric_cols <- train_df %>%
+  select(where(is.numeric)) %>%
+  select(-all_of(ordinal_cols)) %>%
+  colnames()
+
+scaler <- preProcess(train_df[, numeric_cols], method = "center")
+train_df[, numeric_cols] <- predict(scaler, train_df[, numeric_cols])
+test_df[, numeric_cols]  <- predict(scaler,test_df[, numeric_cols])
+# save as train and test dataset
+write.csv(train_df, "train.csv", row.names = FALSE)
+write.csv(test_df, "test.csv", row.names = FALSE)
+```
+
+### 3 Exploratory Analysis & Visualisation
+
+#### 3.1 Relationships Between Demographics and Final Result / Education
+
+```{r fig.height=8, fig.width=24}
+# load data
+df <- read.csv("./visualization.csv")
+
+# Define factor levels for consistent ordering
+ordered_edu <- c("No Formal quals", "Lower Than A Level",
+                 "A Level or Equivalent", "HE Qualification",
+                 "Post Graduate Qualification")
+ordered_age <- c("0-35", "35-55", ">=55")
+desired_result <- c("Withdrawn", "Fail", "Pass", "Distinction")
+
+# Calculate percentage of each final_result category within each education level
+ct1 <- df %>%
+  group_by(highest_education, final_result) %>%
+  summarise(Count = n(), .groups = "drop") %>%
+  group_by(highest_education) %>%
+  mutate(Percentage = Count / sum(Count) * 100) %>%
+  ungroup()
+
+# Apply ordered factors
+ct1$highest_education <- factor(ct1$highest_education, levels = ordered_edu)
+ct1$final_result <- factor(ct1$final_result, levels = desired_result)
+
+# Create stacked bar chart
+p1 <- ggplot(ct1, aes(x = highest_education, y = Percentage, fill = final_result)) +
+  geom_bar(stat = "identity") +
+  labs(x = "`highest_education`", y = "%", title = "Edu & Result`") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 30, hjust = 1, size = 8),
+        plot.title = element_text(size = 11, face = "bold", hjust = 0.5),
+        legend.position = "right")
+
+ct2 <- df %>%
+  group_by(age_band, final_result) %>%
+  summarise(Count = n(), .groups = "drop") %>%
+  group_by(age_band) %>%
+  mutate(Percentage = Count / sum(Count) * 100) %>%
+  ungroup()
+
+ct2$age_band <- factor(ct2$age_band, levels = ordered_age)
+ct2$final_result <- factor(ct2$final_result, levels = desired_result)
+
+p2 <- ggplot(ct2, aes(x = age_band, y = Percentage, fill = final_result)) +
+  geom_bar(stat = "identity") +
+  labs(x = "`age_band`", y = "%", title = "`Age & Result") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(size = 9),
+        plot.title = element_text(size = 11, face = "bold", hjust = 0.5),
+        legend.position = "none")  # hide repeated legend
+
+ct3 <- df %>%
+  group_by(highest_education, gender) %>%
+  summarise(Count = n(), .groups = "drop") %>%
+  group_by(highest_education) %>%
+  mutate(Percentage = Count / sum(Count) * 100) %>%
+  ungroup()
+
+ct3$highest_education <- factor(ct3$highest_education, levels = ordered_edu)
+
+p3 <- ggplot(ct3, aes(x = highest_education, y = Percentage, fill = gender)) +
+  geom_bar(stat = "identity") +
+  labs(x = "`highest_education`", y = "%", title = "Edu & Gender") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 30, hjust = 1, size = 8),
+        plot.title = element_text(size = 11, face = "bold", hjust = 0.5),
+        legend.position = "right")
+
+ct4 <- df %>%
+  group_by(region, highest_education) %>%
+  summarise(Count = n(), .groups = "drop") %>%
+  group_by(region) %>%
+  mutate(Percentage = Count / sum(Count) * 100) %>%
+  ungroup()
+
+ct4$highest_education <- factor(ct4$highest_education, levels = ordered_edu)
+
+p4 <- ggplot(ct4, aes(x = region, y = Percentage, fill = highest_education)) +
+  geom_bar(stat = "identity") +
+  labs(x = "`region`", y = "%", title = "Region & Education") +
+  scale_x_discrete(guide = guide_axis(angle = 60)) +  # prevent label overlap
+  theme_minimal() +
+  theme(axis.text.x = element_text(size = 7),
+        plot.title = element_text(size = 11, face = "bold", hjust = 0.5),
+        legend.position = "right")
+
+grid.arrange(p1, p2, p3, p4, ncol = 2, nrow = 2)
+
+```
+
+These four stacked bar charts reveal critical relationships between key demographic variables and education-related outcomes in the dataset. The aim is to explore how education, age, gender, and region interact with academic performance and educational attainment. 
+
+We can find that those without formal academic qualifications have a higher proportion of Withdrawn and Fail, while those with postgraduate qualifications not only have a lower withdrawal rate, but also have the highest proportion of Distinction, which indicates that academic foundation is the key to achieving results. In terms of age, older learners (aged 55 and above) tend to achieve higher grades. Compared with younger students, they have a higher degree of excellence and fewer failures. This indicates that maturity and life experience may contribute to better performance. Additionally, higher education levels show a clear gender gap, with males increasingly dominating as the qualification level rises. Finally, there are significant regional differences in educational levels: Students from regions such as London and the southeast are more likely to complete higher education, while education from other regions is more concentrated in lower qualification categories. These patterns highlight how individual background and structural inequality may influence learning outcomes.
+
+#### 3.2 Percentage distribution of men and women under different final grades
+
+```{r fig.height=4, fig.width=16}
+# Generate a cross-tab: count the number of each gender for every final result
+ct_gender <- as.data.frame(table(df$final_result, df$gender))
+colnames(ct_gender) <- c("final_result", "gender", "Count")
+
+# Specify the desired order for final results
+desired_order <- c("Withdrawn", "Fail", "Pass", "Distinction")
+ct_gender$final_result <- factor(ct_gender$final_result, levels = desired_order)
+
+# Calculate percentage (normalized by gender)
+ct_gender <- ct_gender %>% 
+  group_by(gender) %>% 
+  mutate(Percentage = Count / sum(Count) * 100)
+
+# Plot a grouped bar chart using ggplot2
+p3 <- ggplot(ct_gender, aes(x = final_result, y = Percentage, fill = gender)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.35), width = 0.35) +
+  labs(x = "Result", y = "Percentage", title = "Result vs. Gender") +
+  scale_fill_manual(values = c("M" = "lightblue", "F" = "lightgreen"),
+                    labels = c("M" = "Male (M)", "F" = "Female (F)")) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+lower_lim <- quantile(df$total_click, 0.05, na.rm = TRUE)
+upper_lim <- quantile(df$total_click, 0.95, na.rm = TRUE)
+df_trimmed <- df %>%
+  mutate(total_click = ifelse(total_click < lower_lim, lower_lim, total_click),
+         total_click = ifelse(total_click > upper_lim, upper_lim, total_click))
+bright_palette <- c("M" = "#FF6F00", "F" = "#00E676")
+p4 <- ggplot(df_trimmed, aes(x = gender, y = total_click, fill = gender)) +
+  geom_boxplot(outlier.shape = NA) +
+  scale_fill_manual(values = bright_palette) +
+  scale_y_continuous(trans = "log10") +
+  labs(x = "Gender", y = "Total Click (log-scale)", title = "Clicks by Gender") +
+  theme_minimal()
+
+grid.arrange(p3, p4, ncol = 2)
+```
+
+The two charts clearly show that there are significant differences in academic engagement and performance between students of different genders. Female students tend to achieve slightly higher pass and distinction rates, indicating better academic performance overall. Meanwhile, male students exhibit greater online engagement, as reflected by higher total click counts on the learning platform. This suggests that while males may interact more frequently with the system, females appear to use their engagement more efficiently in terms of academic outcomes.
+
+Overall, these patterns reflect distinct learning behaviors across genders. In response to the different characteristics of pressure and resource utilization, we should help boys to balance investment and pressure in teaching, and support girls to give full play to their stable advantages and further improve their performance.
+
+#### 3.3 Distribution and Click Engagement Patterns by Final Result
+
+```{r fig.width=16, fig.height=4}
+
+# Prepare count data
+result_counts <- as.data.frame(table(df$final_result))
+colnames(result_counts) <- c("final_result", "count")
+
+
+# Plot 1: Distribution of final_result
+p1 <- ggplot(result_counts, aes(x = final_result, y = count, fill = final_result)) +
+  geom_bar(stat = "identity", width = 0.6) +
+  geom_text(aes(label = count), vjust = -1.2, size = 2, color = "black") +  
+  labs(title = "Class Distribution of Final Result", x = "Final Result", y = "Count") +
+  scale_fill_brewer(palette = "Set2") +
+  ylim(0, max(result_counts$count) * 1.15) +  # Add top space
+  theme_minimal() +
+  theme(legend.position = "none")
+
+
+# lot 2: Density plot of total_click by final_result
+p2 <- ggplot(df, aes(x = total_click, fill = final_result)) +
+  geom_density(alpha = 0.5, adjust = 2) + 
+  scale_x_log10() +
+  labs(
+    title = "Click Distribution by Final Result",
+    x = "Total Clicks (log scale)", y = "Density", fill = "Final Result"
+  ) +
+  theme_minimal()
+# Combine vertically
+plot_grid(p1, p2, ncol = 2, rel_heights = c(1.3, 1.8))  
+```
+
+The bar chart highlights the overall imbalance in final results: The majority of students received a "Pass" (12,358), followed by "Withdrawn" (7,168) and "Fail" (6,678). Only a small portion (3,024) achieved a "Distinction", indicating that high performance is relatively rare in the dataset.
+
+The density plot shows the distribution of total VLE clicks across each result category, using a log scale to accommodate the long-tail nature of the data. Through this plot, we can find students who failed or withdrew demonstrate significantly lower VLE engagement, with their click distributions peaking in the low range (100–300 clicks). In contrast, students who passed or achieved distinction show a much higher level of interaction with the learning platform.
+
+Therefore, these plots not only reveal the engagement-performance gap but also support the inclusion of `total_click` as a key predictive feature in early warning models. These intuitively strong behavioral differences provide a foundation for identifying students at risk before academic failure.
+
+#### 3.4 The relationship between grades and clicks
+
+```{r fig.width=10, fig.height=3}
+ggplot(df, aes(x = final_score, y = total_click, color = final_result)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "loess", se = FALSE, color = "black", linewidth = 1.2) +
+  theme_minimal() +
+  labs(title = "Results vs. Clicks (Loess Trend)",
+       x = "Final Score", y = "Total Clicks", color = "Final Result")
+
+```
+
+This scatter plot illustrates the relationship between students’ final scores and their total clicks. A LOESS trend line is overlaid in black to capture the overall pattern in the data. From the plot, the smoothed trend line reveals a gradual increase in total clicks as final scores rise, with a more noticeable upward curve in the higher score range. This suggests that students who achieved higher scores tend to engage more with the platform, especially in the top performance tier.
+
+Additionally, Students with Distinction often appear in the upper-right corner, showing high engagement and achievement. In contrast, Fail and Withdrawn students are more concentrated at lower scores and lower clicks. Overall, higher engagement (measured by click-through rates) may be associated with better academic outcomes, but differences in click-through rates can still be observed across all performance levels, suggesting that click-through rates alone cannot accurately predict a student's success.
+
+#### 3.5 Q-Q Plot Analysis of Score Distribution
+
+```{r fig.width=10, fig.height=3}
+ggplot(df, aes(sample = final_score)) +
+  stat_qq_band(distribution = "norm", alpha = 0.2, fill = "#56B4E9") +  # Confidence band
+  stat_qq_line(distribution = "norm") +  # Reference line
+  stat_qq_point(distribution = "norm", size = 1.5, alpha = 0.5) +  # Points
+  labs(title = "Q-Q Plot of Final Score",
+       x = "Theoretical Quantiles",
+       y = "Sample Quantiles") +
+  theme_minimal()
+
+```
+
+The Q-Q plot of the final scores shows a clear deviation from the diagonal reference line, particularly at both the lower and upper ends. This indicates that the distribution of final scores is not normally distributed. The heavy tails suggest the presence of skewness and outliers, which aligns with the bimodal distribution observed in the earlier density plot.
+
+#### 3.6 Summary of Observations
+
+The exploratory analysis reveals several key patterns across student engagement and demographic attributes. A positive association is observed between total clicks and final scores, with Distinction students generally exhibiting the highest click counts. In contrast, students who failed or withdrew tend to show low engagement and performance. These patterns are clearly visualized through density plots, which illustrate that low-engagement students cluster heavily in the failure and withdrawal groups. Demographic factors such as age, education level, and region also appear to influence academic outcomes: older students and those with higher education levels achieve better results. Gender differences are notable, with females achieving higher academic outcomes on average, while males demonstrate higher overall click activity. Moreover, Q-Q plots suggests that both final scores and engagement metrics are non-normally distributed and exhibit skewness, which may impact model selection and performance.
+
+For future model use, distributional assessments ( Q-Q plots and density visualisations) show that both final score and engagement metrics are skewed and non-normally distributed. These characteristics should inform model selection, as algorithms relying on strong distributional assumptions (e.g., linear regression, Gaussian Naive Bayes) may be suboptimal without data transformation.
+
+Additionally, classification models are appropriate, since the prediction target final_result is a multiclass categorical variable. The exploratory analysis revealed a non-linear and skewed relationship between total clicks and final scores. It indicate that ensemble methods (e.g., Random Forest, Gradient Boosting) or neural networks, are likely to outperform simple linear models.
+
+Furthermore, the class distribution is highly unbalanced, with the "Pass" category dominating the dataset. This requires the use of strategies such as class weighting or macro F1 scores and other evaluation metrics to ensure the fair performance of all classes. Demographic features, including age band, education level, and gender, have shown clear associations with student outcomes and should be incorporated into the model as informative predictors.
+
+### 4. Model Building and Evaluation
+
+#### 4.1 Model Selection
+
+Based on the previous data analysis, this paper finally selects five classic classification models, namely Logistic regression, random forest, K-nearest Neighbor (KNN), Extreme Gradient Boosting Tree (XGBoost), and Support Vector Machine (SVM).
+
+Because these five models do not have strict Settings for the feature distribution. For logistic regression, there exists a rough linear relationship between features and logical probabilities. Random Forest and XGBoost, as tree-based ensemble models, can automatically handle the complex nonlinear relationships among features and have no strict requirements for data distribution. Support Vector Machine (SVM) requires that a hyperplane can be found to divide the data into two parts. The KNN model is applicable to numerical data and basically conforms to this dataset.
+
+To further improve the performance of these models, this study also conducts the search for key hyperparameters of each model through GridSearchCV:
+
+**1. Logistic Regression** (hyperparameters: λ): controls the complexity of the model. The larger the λ, the stronger the penalty, the simpler the model, and prevents overfitting.
+
+**2. random forest** (hyperparameters: mtry): The number of randomly selected features each time the decision tree splits, which enhances the generalization ability of the model.
+
+**3. KNN** (hyperparameters: K): Similar data have the same characteristics. Find the number of K nearest neighbors.
+
+**4. XGBoost** (hyperparameters: max_depth, eta): The max_depth controls the complexity of the model. The learning rate (eta) controls the training speed and iteration step size. The greater the learning rate is, the faster the model training is, but it is easy to skip the optimal solution. The smaller the learning rate, the slower the model training, but it is easier to find the optimal solution.
+
+**5. SVM** (hyperparameters: cost): Cost is penalty parameter. The larger the value, the stricter the classification boundary, and the model is more easy to overfitting or being affected by noise. By adjusting these parameters, efforts to find the optimal classification model.
+
+#### 4.2 Evaluation Metrics
+
+```{r}
+train <- read_csv("train.csv")
+test  <- read_csv("test.csv")
+# Keep only rows where final_result is Fail (2), Pass (3), or Distinction (4)
+train <- train[train$final_result %in% c(2,3,4), ]
+test  <- test[test$final_result %in% c(2,3,4), ]
+
+# Create binary label: 'fail' vs. 'pass' (Pass or Distinction grouped as "pass")
+train$label_bin <- factor(ifelse(train$final_result == 2, "fail", "pass"), levels=c("fail","pass"))
+test$label_bin  <- factor(ifelse(test$final_result == 2, "fail", "pass"), levels=c("fail","pass"))
+
+# Identify numeric features (excluding final_result and label_bin)
+numeric_cols <- sapply(train, is.numeric)
+numeric_cols["final_result"] <- FALSE
+numeric_cols["label_bin"] <- FALSE
+
+# Extract numeric feature names
+feature_names <- names(train)[numeric_cols]
+
+# Subset numeric features and label for training and test sets
+train_num <- train[, c(feature_names, "label_bin")]
+test_num  <- test[,  c(feature_names, "label_bin")]
+
+# Ensure column names are syntactically valid
+colnames(train_num) <- make.names(colnames(train_num))
+colnames(test_num)  <- make.names(colnames(test_num))
+```
+
+Due to the class imbalance in the original data, including Withdrawn (drop), Fail (fail), Pass (pass) and Distinction (Distinction). The purpose of this study was to give early warnings about students' final grades. We combine the 'Pass' and 'Distinction' categories into 'Pass', remove the 'Withdrawn' category which is irrelevant to the warning, and keep only the 'Fail' and 'Pass' categories. Thus multi-classification transform into a binary classification problem. In this way, the validity and accuracy of the model's prediction can be improved, and the robustness of the model can be enhanced in predicting students' final academic performance.
+
+Since there is still the problem of imbalanced categories after processing, we not only use accuracy to evaluate the model. Methods such as confusion matrices were also used to comprehensively evaluate the performance of the model. The following explains the meanings of each indicator:
+
+**TP (True Positive)** : The number of samples that are actually of the positive class and are also predicted to be of the positive class by the model.
+
+**TN (True Negative)** : The sample size that is actually a negative class and is also predicted as a negative class by the model.
+
+**FP (False Positive)** : The number of samples that are actually in the negative class but wrongly predicted by the model to be in the positive class.
+
+**FN (False Negative)** : The number of samples that are actually in the positive class but wrongly predicted by the model to be in the negative class.
+
+**1. Accuracy** $(TP+TN)/(TP+TN+FP+FN)$: Measures the overall prediction correctness, providing an intuitive accuracy comparison for model evaluation. When looking for the optimal parameters, use this indicator to compare the performance of different parameters of the same model
+
+**2.Precision** $TP/(TP+FP)$: Among all the predicted failed students, how many are truly failed? Reduce false alarms when identifying students at risk.
+
+**3.Recall** $TP/(TP+FN)$: Among all the students who actually Fail, how many can the model identify? Measure the model's ability to correctly identify positive cases, which is crucial for capturing as many failed students as possible.
+
+**4.F1-score**: Balances accuracy and recall, suitable for addressing class imbalances in both failed and pass situations.
+
+**5.ROC & AUC**: Evaluate the overall model performance without considering the classification threshold; The closer the AUC is to 1, the model is more better. This method will be used to evaluate the five optimal basic models.
+
+#### 4.3 Model Construction
+
+```{r eval=FALSE, fig.width=10, fig.height=3}
+# Generate 5-fold cross-validation splits based on class stratification
+cv_folds <- createFolds(train_num$label_bin, k=5, list=TRUE, returnTrain=FALSE)
+
+# General CV function that takes a model function and hyperparameter grid
+cv_score <- function(model_func, grid, train_num, type="acc", ...) {
+  scores <- numeric(length(grid))
+  pb <- txtProgressBar(min=0, max=length(grid), style=3)
+  for (gi in seq_along(grid)) {
+    setTxtProgressBar(pb, gi)
+    scs <- c()
+    for (fold in cv_folds) {
+      tr_idx <- setdiff(seq_len(nrow(train_num)), fold)
+      va_idx <- fold
+      tr <- train_num[tr_idx, ]; va <- train_num[va_idx, ]
+      pred <- model_func(tr, va, grid[[gi]], ...)
+      sc <- mean(pred == va$label_bin)  # Accuracy
+      scs <- c(scs, sc)
+    }
+    scores[gi] <- mean(scs)
+  }
+  close(pb)
+  return(scores)
+}
+
+cat("RandomForest\n")
+rf_grid <- c(2, 5, 8, 12, 16,19,22) 
+rf_cv_scores <- cv_score(
+  function(tr, va, mtry) {
+    fit <- randomForest(label_bin ~ ., data=tr, ntree=500, mtry=mtry)
+    pred <- predict(fit, va)
+    pred
+  }, as.list(rf_grid), train_num
+)
+rf_best_mtry <- rf_grid[which.max(rf_cv_scores)]
+cat("Best mtry =", rf_best_mtry, "\n")
+rf_best <- randomForest(label_bin ~ ., data=train_num, ntree=500, mtry=rf_best_mtry)
+rf_pred <- predict(rf_best, test_num)
+rf_prob <- predict(rf_best, test_num, type="prob")[,"pass"]
+
+
+cat("GLMNet\n")
+glm_grid <- c(0.0001,0.001,0.01, 0.1, 0.5, 1, 2, 5,8)  # lambda
+glm_cv_scores <- cv_score(
+  function(tr, va, lambda) {
+    x <- as.matrix(tr[, -ncol(tr)]); y <- tr$label_bin
+    fit <- glmnet(x, y, family="binomial", alpha=0, lambda=lambda)
+    pred <- predict(fit, as.matrix(va[, -ncol(va)]), type="class", s=lambda)
+    factor(pred, levels=levels(va$label_bin))
+  }, as.list(glm_grid), train_num
+)
+glm_best_lambda <- glm_grid[which.max(glm_cv_scores)]
+x <- as.matrix(train_num[, -ncol(train_num)]); y <- train_num$label_bin
+fit_glm <- glmnet(x, y, family="binomial", alpha=0, lambda=glm_best_lambda)
+glmnet_pred <- predict(fit_glm, as.matrix(test_num[, -ncol(test_num)]), type="class", s=glm_best_lambda)
+glmnet_prob <- as.vector(predict(fit_glm, as.matrix(test_num[, -ncol(test_num)]), type="response", s=glm_best_lambda))
+glmnet_pred <- as.factor(glmnet_pred)
+levels(glmnet_pred) <- levels(test_num$label_bin)
+
+
+cat("KNN \n")
+knn_grid <- c(3,5,7,11,15,17,19,21)  # k values
+knn_cv_scores <- cv_score(
+  function(tr, va, k) {
+    fit <- train.kknn(label_bin ~ ., data=tr, kmax=k, kernel="rectangular")
+    pred <- predict(fit, newdata=va)
+    factor(pred, levels=levels(va$label_bin))
+  }, as.list(knn_grid), train_num
+)
+knn_best_k <- knn_grid[which.max(knn_cv_scores)]
+knn_best <- train.kknn(label_bin ~ ., data = train_num, kmax = knn_best_k, kernel = "rectangular")
+knn_pred <- predict(knn_best, newdata = test_num)
+knn_prob <- as.numeric(predict(knn_best, newdata = test_num, type = "prob")[,"pass"])
+
+cat("XGBoost\n")
+xgb_grid <- expand.grid(max_depth = c(3,5,7,9,11), eta = c(0.1, 0.3))  # depth & learning rate
+xgb_cv_acc <- c()
+for (i in 1:nrow(xgb_grid)) {
+  params <- list(objective="binary:logistic", eval_metric="logloss",
+                 max_depth=xgb_grid$max_depth[i], eta=xgb_grid$eta[i])
+  accs <- c()
+  for (fold in cv_folds) {
+    tr_idx <- setdiff(seq_len(nrow(train_num)), fold)
+    va_idx <- fold
+    tr <- train_num[tr_idx, ]; va <- train_num[va_idx, ]
+    dtr <- xgb.DMatrix(as.matrix(tr[, -ncol(tr)]), label = as.integer(tr$label_bin)-1)
+    dva <- xgb.DMatrix(as.matrix(va[, -ncol(va)]))
+    fit <- xgboost(params = params, data = dtr, nrounds = 100, verbose = 0)
+    prob <- predict(fit, dva)
+    pred <- factor(ifelse(prob > 0.5, "pass", "fail"), levels=c("fail","pass"))
+    acc <- mean(pred == va$label_bin)
+    accs <- c(accs, acc)
+  }
+  xgb_cv_acc[i] <- mean(accs)
+  cat(sprintf("CV: depth=%d eta=%.2f mean_acc=%.4f\n",
+              xgb_grid$max_depth[i], xgb_grid$eta[i], xgb_cv_acc[i]))
+}
+best_xgb <- which.max(xgb_cv_acc)
+xgb_best_param <- xgb_grid[best_xgb, ]
+dtrain <- xgb.DMatrix(as.matrix(train_num[, -ncol(train_num)]), label = as.integer(train_num$label_bin)-1)
+dtest  <- xgb.DMatrix(as.matrix(test_num[, -ncol(test_num)]))
+xgb_best <- xgboost(
+  params = list(objective="binary:logistic", eval_metric="logloss",
+                max_depth=xgb_best_param$max_depth, eta=xgb_best_param$eta),
+  data = dtrain, nrounds = 100, verbose = 0
+)
+xgb_prob <- predict(xgb_best, dtest)
+xgb_pred <- factor(ifelse(xgb_prob > 0.5, "pass", "fail"), levels=c("fail","pass"))
+
+cat("SVM\n")
+svm_grid <- c(0.001,0.01,0.1, 1)
+svm_cv_scores <- cv_score(
+  function(tr, va, cost) {
+    fit <- svm(label_bin ~ ., data=tr, cost=cost, kernel="linear", probability=TRUE)
+    pred <- predict(fit, newdata=va)
+    factor(pred, levels=levels(va$label_bin))
+  }, as.list(svm_grid), train_num
+)
+svm_best_cost <- svm_grid[which.max(svm_cv_scores)]
+svm_best <- svm(label_bin ~ ., data=train_num, cost=svm_best_cost, kernel="linear", probability=TRUE)
+svm_pred <- predict(svm_best, newdata = test_num)
+svm_prob <- attr(predict(svm_best, newdata=test_num, probability=TRUE), "probabilities")[,"pass"]
+
+# Combine all CV scores for plotting
+cv_data <- bind_rows(
+  tibble(Model = "RandomForest", Param = as.character(rf_grid),    Score = rf_cv_scores,    ParamName="mtry"),
+  tibble(Model = "GLMNet",       Param = as.character(log10(glm_grid)), Score = glm_cv_scores, ParamName="log10(lambda)"),
+  tibble(Model = "KNN",          Param = as.character(knn_grid),   Score = knn_cv_scores,   ParamName="k"),
+  tibble(Model = "XGBoost",      
+         Param = paste0("d", xgb_grid$max_depth, "_e", xgb_grid$eta),
+         Score = xgb_cv_acc, ParamName = "max_depth+eta"),
+  tibble(Model = "SVM",          Param = as.character(log10(svm_grid)), Score = svm_cv_scores, ParamName="log10(cost)")
+)
+cv_data$Param <- as.character(cv_data$Param)  # ensure proper factor ordering
+
+# Save each model and CV's Values
+saveRDS(rf_best, "rf_best.rds")
+saveRDS(list(fit_glm = fit_glm, glm_best_lambda = glm_best_lambda), "glm_best.rds")
+saveRDS(knn_best, "knn_best.rds")
+saveRDS(xgb_best, "xgb_best.rds")
+saveRDS(svm_best, "svm_best.rds")
+saveRDS(cv_data, "cv_data.rds")
+model_list <- list(rf = rf_best, glm = fit_glm, knn = knn_best, xgb = xgb_best, svm = svm_best)
+saveRDS(model_list, "model_list.rds")
+
+```
+
+The above code is the training process and the process of saving the optimal model.
+
+```{r fig.width=10, fig.height=4}
+label_fun <- function(x) {
+  sapply(x, function(xx) {
+    num <- suppressWarnings(as.numeric(xx))
+    if (!is.na(num)) {
+      sprintf("%.2f", num)
+    } else {
+      xx
+    }
+  })
+}
+
+cv_data <- readRDS("cv_data.rds")
+cv_data2 <- cv_data %>%
+  mutate(
+    Param_num = suppressWarnings(as.numeric(Param)),
+    Param2     = str_wrap(Param, width = 8)
+  ) %>%
+
+  group_by(Model) %>%
+  arrange(Param_num, .by_group = TRUE) %>%
+
+  mutate(
+    Param2 = factor(Param2, levels = unique(Param2))
+  ) %>%
+  ungroup()
+
+ggplot(cv_data2, aes(x = Param2, y = Score, group = Model, color = Model)) +
+  geom_line(size = 1) +
+  geom_point(size = 2) +
+  facet_wrap(~ Model,
+             nrow  = 2, ncol = 3,
+             scales = "free"  
+  ) +
+  scale_x_discrete(
+    labels = label_fun,
+    guide  = guide_axis(n.dodge = 2)
+  ) +
+  scale_color_brewer(palette = "Set1") +
+  labs(
+    title = "The average accuracy rate of the model in 5 fold CV",
+    x     = "Hyperparameter values",
+    y     = "Average accuracy rate"
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(
+    strip.text      = element_text(face = "bold", size = 14),
+    axis.text.x     = element_text(size = 6, angle = 90, vjust = 0.5, hjust = 1),
+    panel.spacing   = unit(1.2, "lines"),
+    legend.position = "none"
+  )
+
+```
+
+It can be known from the search results of hyperparameters of each model in the above figure that XGBoost performs best when the learning rate is 0.1 and the tree depth (max_depth) is 7, and the accuracy rate reaches 0.87. Meanwhile, no matter how the max_depth or learning rate parameters are adjusted, its accuracy rate always remains stable between 0.87 and 0.88, demonstrating good stability.
+
+Although the accuracy of most models shows an upward or stable trend with the adjustment of parameters, the accuracy of Logistic regression (GLM) shows a downward trend as the regularization parameter (lambda) increases. This indicates that the model has not improved the prediction effect in the case of increased complexity; instead, it has reduced the accuracy.
+
+Therefore, the stability of the model will be further verified through the Bagging method in the future to determine whether the decrease in the accuracy of logistic regression is due to the model itself or the data.
+
+#### 4.4 Model Evaluation
+
+```{r roc-and-metrics, warning=FALSE, message=FALSE, fig.width=10, fig.height=4}
+# Load the models
+res <- readRDS("glm_best.rds")
+rf_best   <- readRDS("rf_best.rds")
+fit_glm   <- res$fit_glm
+knn_best  <- readRDS("knn_best.rds")
+xgb_best  <- readRDS("xgb_best.rds")
+svm_best  <- readRDS("svm_best.rds")
+glm_best_lambda <- res$glm_best_lambda
+
+# predictions and probabilities for each model
+rf_prob   <- predict(rf_best, test_num, type="prob")[,"pass"]
+glm_prob  <- predict(fit_glm,
+                     as.matrix(test_num %>% select(-label_bin)),
+                     type="response", s=glm_best_lambda) %>% as.vector()
+knn_prob  <- predict(knn_best, newdata=test_num, type="prob")[,"pass"]
+feature_cols <- setdiff(colnames(test_num), "label_bin")
+dtest <- xgb.DMatrix(as.matrix(test_num[, feature_cols]))
+xgb_prob <- predict(xgb_best, dtest)
+svm_prob  <- attr(predict(svm_best, test_num, probability=TRUE),
+                  "probabilities")[,"pass"]
+
+# all model probabilities
+probs <- list(
+  RF    = rf_prob,
+  Logit = glm_prob,
+  KNN   = knn_prob,
+  XGB   = xgb_prob,
+  SVM   = svm_prob
+)
+
+# ROC and AUC for each model
+rocs <- imap(probs, ~ pROC::roc(
+  response  = test_num$label_bin,
+  predictor = .x,
+  levels    = c("fail", "pass"),
+  direction = "<"
+))
+aucs <- map_dbl(rocs, auc) %>% round(3)
+
+# plot the graph
+roc_df <- imap_dfr(rocs, function(r, model){
+  tibble(
+    Model = model,
+    FPR   = 1 - r$specificities,
+    TPR   = r$sensitivities
+  )
+})
+roc_df$Model <- factor(roc_df$Model, levels=c("RF","Logit","KNN","XGB","SVM"))
+
+my_colors <- c(
+  RF    = "darkorange",
+  Logit = "firebrick",
+  KNN   = "dodgerblue",
+  XGB   = "purple",
+  SVM   = "forestgreen"
+)
+
+p_roc <- ggplot(roc_df, aes(FPR, TPR, color=Model)) +
+  geom_line(size=1.2) +
+  geom_abline(linetype="dashed", color="grey60") +
+  scale_color_manual(
+    name   = "AUC",
+    values = my_colors,
+    labels = paste0(names(my_colors), " AUC=", aucs[names(my_colors)])
+  ) +
+  labs(title="Model Comparison ROC Curve",
+       x = "False Positive Rate",
+       y = "True Positive Rate") +
+  theme_minimal(base_size=14) +
+  theme(
+    legend.position    = "bottom",
+    legend.direction   = "horizontal",
+    legend.key.width   = unit(1,"cm"),
+    legend.key.height  = unit(0.4,"cm"),
+    legend.spacing.x   = unit(0.2,"cm")
+  )
+
+eval_metrics_bin <- function(pred, truth) {
+  pred  <- factor(pred,  levels=levels(truth))
+  truth <- factor(truth, levels=levels(truth))
+  tibble(
+    F1        = f_meas_vec(truth, pred, estimator="binary"),
+    Recall    = recall_vec(truth, pred, estimator="binary"),
+    Precision = precision_vec(truth, pred, estimator="binary"),
+    ACC       = mean(pred == truth)
+  )
+}
+
+# Generate predictions from probabilities
+rf_pred   <- factor(ifelse(rf_prob   > .5, "pass", "fail"), levels=c("fail","pass"))
+glm_pred  <- factor(ifelse(glm_prob  > .5, "pass", "fail"), levels=c("fail","pass"))
+knn_pred  <- factor(ifelse(knn_prob  > .5, "pass", "fail"), levels=c("fail","pass"))
+xgb_pred  <- factor(ifelse(xgb_prob  > .5, "pass", "fail"), levels=c("fail","pass"))
+svm_pred  <- factor(ifelse(svm_prob  > .5, "pass", "fail"), levels=c("fail","pass"))
+
+# Combine evaluation metrics for all models
+metrics_bin <- bind_rows(
+  eval_metrics_bin(rf_pred,   test_num$label_bin),
+  eval_metrics_bin(glm_pred,  test_num$label_bin),
+  eval_metrics_bin(knn_pred,  test_num$label_bin),
+  eval_metrics_bin(xgb_pred,  test_num$label_bin),
+  eval_metrics_bin(svm_pred,  test_num$label_bin)
+) %>%
+  mutate(Model = c("RandomForest", "Logistic(GLM)", "KNN", "XGBoost", "SVM")) %>%
+  select(Model, everything())
+
+tbl <- tableGrob(metrics_bin, rows=NULL,
+                 theme=ttheme_minimal(
+                   core    = list(fg_params=list(hjust=0.5, x=0.5)),
+                   colhead = list(fg_params=list(fontface="bold"))
+                 ))
+
+grid.arrange(p_roc, tbl, ncol=1, heights=c(3, 2))
+```
+
+The ROC curve visually shows the performance of the five classification models. Among them, XGBoost performs the best (AUC=0.910), followed closely by Random Forest (AUC=0.909), indicating that the ability of these two integrated models to distinguish positive and negative samples is outstanding. The reason why the performance of these two models is close and stable might lie in the fact that both are tree-based ensemble methods: XGBoost successively fits the residuals of the previous tree through multiple trees, assigns different weights to each tree, and finally weights to obtain the prediction result. Random forests predict through a large number of independent trees (for example, 500 trees) voting.
+
+The performance of SVM and Logistic regression was similar (with AUC of 0.884 and 0.885 respectively), slightly inferior to the former two. However, logistic regression has good interpretability and stability and is applicable to actual business scenarios. KNN performed the worst (AUC=0.810)
+
+The above conclusion has also been further verified in metrics such as F1, Recall, Precision and Accuracy. To sum up, it is recommended to give priority to using the XGBoost or Random Forest model, and then consider SVM. Meanwhile, although logistic regression has slightly weaker performance, it can be further tested through the Bagging method to determine whether it is suitable as an alternative option.
+
+#### 4.5 Model Comparison and Conclusions
+
+```{r eval=FALSE}
+cat("GLM Bagging\n")
+# Set number of samples
+N_bag <- 500
+n <- nrow(train_num)
+
+x <- as.matrix(train_num[, -ncol(train_num)])
+y <- train_num$label_bin
+x_test <- as.matrix(test_num[, -ncol(test_num)])
+
+glm_bag_prob_mat <- matrix(NA, nrow=nrow(test_num), ncol=N_bag)
+
+for (i in 1:N_bag) {
+  set.seed(2024 + i)
+  idx <- sample(1:n, n, replace = TRUE)
+  x_boot <- x[idx, ]
+  y_boot <- y[idx]
+  fit <- glmnet(x_boot, y_boot, family="binomial", alpha=0, lambda=glm_best_lambda)
+  glm_bag_prob_mat[, i] <- as.vector(predict(fit, x_test, s=glm_best_lambda, type="response"))
+}
+
+glm_bag_prob <- rowMeans(glm_bag_prob_mat)
+
+glm_bag_pred <- factor(ifelse(glm_bag_prob > 0.5, "pass", "fail"), levels=c("fail", "pass"))
+
+roc_glm_bag <- pROC::roc(test_num$label_bin, glm_bag_prob, levels = c("fail", "pass"), direction = "<")
+
+result_list <- list(
+  glm_prob      = glmnet_prob,
+  glm_pred      = glmnet_pred,
+  roc_glm       = roc_glm,
+  glm_bag_prob  = glm_bag_prob,
+  glm_bag_pred  = glm_bag_pred,
+  roc_glm_bag   = roc_glm_bag
+)
+saveRDS(result_list, "glm_bagging_results.rds")
+```
+
+The above code is the training process and the process of saving the optimal model.
+
+```{r glm-bagging-output,fig.width=10, fig.height=3}
+# Load best GLM model
+res2 <- readRDS("glm_best.rds")
+fit_glm <- res2$fit_glm
+
+# Load bagging results
+res <- readRDS("glm_bagging_results.rds")
+glm_best_lambda <- res$glm_best_lambda
+roc_glm         <- res$roc_glm
+roc_glm_bag     <- res$roc_glm_bag
+
+roc_df <- bind_rows(
+  tibble(FPR = 1 - roc_glm$specificities,
+         TPR = roc_glm$sensitivities,
+         Model = "GLM"),
+  tibble(FPR = 1 - roc_glm_bag$specificities,
+         TPR = roc_glm_bag$sensitivities,
+         Model = "Bagged GLM")
+)
+roc_df$Model <- factor(roc_df$Model, levels=c("GLM","Bagged GLM"))
+
+# Compute AUCs for display
+auc_glm <- round(auc(roc_glm), 3)
+auc_bg  <- round(auc(roc_glm_bag), 3)
+
+# Plot ROC curves
+p1 <- ggplot(roc_df, aes(x=FPR, y=TPR, color=Model)) +
+  geom_line(size=1.2) +
+  geom_abline(linetype="dashed", color="grey60") +
+  scale_color_manual(
+    values = c("GLM" = "firebrick", "Bagged GLM" = "navy"),
+    labels = c(
+      paste0("GLM (AUC=", auc_glm, ")"),
+      paste0("Bagged GLM (AUC=", auc_bg, ")")
+    )
+  ) +
+  labs(
+    title = "ROC Curve: GLM vs. Bagged GLM",
+    x = "False Positive Rate",
+    y = "True Positive Rate"
+  ) +
+  theme_minimal(base_size=14) +
+  theme(legend.position = "bottom")
+
+# Extract and rank top 10 coefficients from the GLM model
+coefs <- as.matrix(coef(fit_glm))
+top10 <- head(sort(abs(coefs[,1]), decreasing=TRUE), 10)
+coef_tbl <- data.frame(
+  Feature         = names(top10),
+  Abs_Coefficient = round(as.numeric(top10), 4),
+  row.names = NULL
+)
+
+p2 <- tableGrob(coef_tbl, rows=NULL,
+                theme=ttheme_minimal(
+                  core = list(fg_params=list(hjust=0.5, x=0.5)),
+                  colhead = list(fg_params=list(fontface="bold"))
+                ))
+
+grid.arrange(p1, p2, ncol=2, widths=c(2,1))
+```
+
+It can be seen from the comparison of the ROC curves in the above figure that the curves of Bagged GLM and the basic GLM almost overlap, and the AUC of both is 0.885, indicating that Bagging does not improve the model performance - the original Logistic regression already has a high generalization ability and robustness, and can directly meet the requirements of this binary classification task.
+
+And through the coefficient analysis of each attribute in the logistic regression model, it is found that the several characteristics that have the greatest impact on students' final grades are respectively: Average daily click volume (avg_day_click), click volume after module opening (after_modullopen_click), total click volume (total_click), click volume of course content, as well as homepage click volume (homepage_sum_click) and quiz click volume (quiz_sum_click), etc. This indicates that the degree of interaction between students and online learning resources and exams during the learning process is directly related to their final grades.
+
+#### 5. Conclusion and Limitation
+
+#### 5.1 Conclusion
+
+The results of this study are basically consistent with our previous hypothesis: students' online interaction behaviors and demographic characteristics significantly affect academic performance. Through correlation analysis, it can be known that frequent interactive behaviors in the virtual learning environment are closely related to better academic performance. Especially, the average daily click volume, the total number of clicks and the interaction performance in the early stage of module release are the most influential. Behavioral indicators such as home page visits and test attempts are also highly correlated with the course pass rate, and demographic factors such as age and educational attainment also have certain influences.
+
+This confirms the feasibility and practical value of risk identification based on interactive data, providing a foundation for the construction of an early warning system. Furthermore, teachers can optimize their teaching designs around these key behavioral characteristics, such as increasing the frequency of tests, enriching learning resources, and strengthening interactive modules, in order to enhance student participation and the overall pass rate. Overall, the model performance is in line with expectations. The linear model has demonstrated good stability, and Bagging has not brought significant improvement, indicating that the basic method has sufficient robustness and practicability in the current scenario.
+
+#### 5.2 Limitation
+
+Although the overall performance of the model is stable and reliable, there are still limitations. Firstly, for some students who have less online interaction but excellent grades, the model's recognition effect is poor and they may be mistakenly marked as Fail. This indicates that the existing features have not covered all influencing factors, especially implicit variables such as offline learning and existing knowledge reserves.
+
+Secondly, the data mainly relies on click-through rates and test scores, which are difficult to reflect the depth of learning and the degree of concentration. This may underestimate certain key learning behaviors, such as actual learning duration, login frequency, and learning efficiency. Future models should consider introducing more refined indicators to enhance the ability to identify typical students and the fairness of overall predictions.
+
+\newpage
+
+#### Appendix
+
+#### Acknowledgement
+
+I acknowledge the use of \<ChatGPT (<https://chat.openai.com/>)\> to <enhance the readability of some articles>. \
+
+#### Reference
+
+1.thedevastator. (n.d.). *Open University Learning Analytics Dataset* [Data set]. Kaggle. <https://www.kaggle.com/datasets/thedevastator/open-university-learning-analytics-dataset>
+
+2.Wikipedia contributors. (2025). *Deprivation index*. In Wikipedia. <https://en.wikipedia.org/wiki/Deprivation_index>
+
+#### Data Dictionary
+
+| Variable Name | Data Type | Sample Value | Description | Category |
+|:--------------|:--------------|:--------------|:--------------|:--------------|
+| code_module | string | AAA | Code of the course module the student is enrolled in. | Categorical |
+| code_presentation | string | 2013J | Presentation/term code (e.g., year and season). | Categorical |
+| id_student | int64 | 11391 | Unique identifier for each student. | Categorical |
+| gender | string | M | Student's gender (M = Male, F = Female). | Categorical |
+| region | string | East Anglian Region | Geographical region of the student in the UK. | Categorical |
+| highest_education | string | HE Qualification | Highest education level before enrolling. | Categorical |
+| imd_band | string | 90-100% | Index of Multiple Deprivation (socio-economic tier). | Categorical |
+| age_band | string | 55\<= | Age range category of the student. | Categorical |
+| num_of_prev_attempts | int64 | 0 | Number of previous attempts at this module. | Numerical |
+| studied_credits | int64 | 240 | Total number of credits the student has studied. | Numerical |
+| disability | string | N | Indicates if the student has declared a disability (Y/N). | Categorical |
+| final_result | string | Pass | Final result in the module (Pass/Fail/Withdraw/Distinction). | Categorical |
+| avg_day_click | float64 | 4 | Average number of clicks per day during the course. | Numerical |
+| total_click | float64 | 934 | Total number of interactions (clicks) during the course. | Numerical |
+| befor_modulopen_click | float64 | 98 | Number of clicks before the module officially started. | Numerical |
+| after_modulopen_click | float64 | 836 | Number of clicks after the module officially started. | Numerical |
+| resource_sum_click | float64 | 13 | Total clicks on 'Resource' activity type. | Numerical |
+| oucontent_sum_click | float64 | 553 | Total clicks on 'Oucontent' activity type. | Numerical |
+| url_sum_click | float64 | 5 | Total clicks on 'Url' activity type. | Numerical |
+| forumng_sum_click | float64 | 193 | Total clicks on 'Forumng' activity type. | Numerical |
+| htmlactivity_sum_click | float64 | -1 | Total clicks on 'Htmlactivity' activity type. | Numerical |
+| final_score | float64 | 82.4 | Final numeric score of the student (0–100). | Numerical |
+| date_registration | int64 | -159 | Days before module start when student registered. | Temporal |
+| date_unregistration | string | ? | Days from module start when student unregistered (**? = missing**). | Temporal |
+| module_presentation_length | int64 | 268 | Length of the module presentation in days. | Numerical |

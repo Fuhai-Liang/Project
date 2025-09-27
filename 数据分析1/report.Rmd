@@ -1,0 +1,245 @@
+---
+output:
+  pdf_document:
+    toc: TRUE
+    toc_depth: 3
+    latex_engine: xelatex
+  html_document:
+    toc: no
+    df_print: paged
+header-includes:
+- \usepackage{caption}
+- \captionsetup[figure]{font=scriptsize}
+- \usepackage{sectsty}
+- \allsectionsfont{\color{ForestGreen}}
+mainfont: Avenir Book
+urlcolor: blue
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+\newpage
+# 1. Introduction and Hypothesis
+
+Theory: We hypothesize that quality of life is influenced by access to basic necessities (food and medical treatment), perceived safety, neighborhood conditions, and social respect, as these factors jointly shape individuals‘ life quality)
+
+This study assesses associations between multiple social and economic determinants and overall quality of life among Australian respondents. In particular, we examine whether perceived crime levels, the atmosphere of the safety,social respect, neighborhood environment, and experiences of going without basic necessities (food, and medical treatment) play significant role in shaping individuals’ well-being. We leverage survey data from the World Values Survey, which offers many measures of both social conditions and personal experiences. By studying five predictors, we hope to better understand how threat evocations from outside the family home and protective factors such as supportive family dynamics, material resources, community contexts, and episodes of deprivation interact to shape people’s subjective life satisfaction and psychological security.
+
+# 2. Data and Pro-processing
+
+```{r}
+# Load necessary libraries
+library(ggplot2)
+library(psych)
+library(tidyverse)
+library(ggpubr)
+
+# 1. Merge and recode label variables
+wvs.dat <- read.csv("./Data/wvs_data.csv")
+wvs.dat <- wvs.dat %>%
+  dplyr::mutate(
+    happiness = dplyr::recode(V10, 
+                              '1' = 4,
+                              '2' = 3,
+                              '3' = 2,
+                              '4' = 1, 
+                              '-2' = NULL),
+  
+    health = dplyr::recode(V11,
+                           '1' = 5, 
+                           '2' = 4, 
+                           '3' = 3,
+                           '4' = 2,
+                           '5' = 1, 
+                           '-2' = NULL),
+    
+    finances = dplyr::recode(V59, 
+                             '-2' = NULL,
+                             .default = V59),
+
+    satisfaction = dplyr::recode(V23, 
+                                 '-2' = NULL,
+                                 .default = V23),
+    
+    freedom = dplyr::recode(V55, 
+                            '-2' = NULL,
+                            .default = V55))
+
+# Perform factor analysis on the five variables and extract one factor
+fa.fit <- fa(wvs.dat[,c("happiness",
+                        "health",
+                        "finances", 
+                        "satisfaction",
+                        "freedom")], 
+             nfactors = 1)
+
+wvs.dat$life.quality <- as.numeric(fa.fit$scores)
+
+# Read raw data and combine with the five selected features and the label
+data <- read.csv("./Data/wvs_data.csv")
+# Extract 'lab' as life quality label
+lab <- wvs.dat$life.quality
+
+# Combine selected features and label into one dataset
+# Create the select_data dataframe containing 5 features and 'lab'
+select_data <- data %>%
+  dplyr::select(V189, V188, V103, V190, V142) %>%
+  mutate(lab = wvs.dat$life.quality)
+
+# safety: 1–4 represents increasing safety
+# enough_foot: 1–4 represents increasing food sufficiency
+select_data <- select_data %>%
+  dplyr::transmute(
+    safety = dplyr::recode(V189, 
+                           '-2' = NULL,
+                           .default = V189),
+    
+    enough_foot = dplyr::recode(V188,
+                                '-2' = NULL,
+                                .default = V188),
+    # Recode neighborhood friendliness (higher = more friendly)
+    neighborhood_friendly = dplyr::recode(V103, 
+                                          '1' = 4,
+                                          '2' = 3,
+                                          '3' = 2,
+                                          '4' = 1, 
+                                          '-2' = NULL,
+                                          .default = as.numeric(V103)),
+
+    # Recode access to medical treatment (remove invalid values)
+    medical_treatment = dplyr::recode(V190, 
+                                      '-2' = NULL,
+                                      .default = V190),
+    
+    # Recode perceived human respect (higher = more respected)
+    respect_human = dplyr::recode(V142, 
+                                  '1' = 4,
+                                  '2' = 3,
+                                  '3' = 2,
+                                  '4' = 1, 
+                                  '-2' = NULL,
+                                  .default = as.numeric(V142)),
+    # Add life quality label
+    lab = dplyr::recode(lab, .default = lab)
+  )
+
+```
+
+## 2.1 Feature Selection
+
+### 2.1.1 Safety (V189):
+
+According to Powdthavee (2005), people victimized by a crime experience a decrease in their subjective well-being. On the other hand, Dang Vu and Ásgeirsdóttir (2024) from an economics perspective calculate the cost of crime victimization in a quantitative manner using a compensating income variation approach. According to their findings, in areas with heightened crime, the additional income required for compensation against potential future risks increases significantly, as do the indirect effects on quality of life in general. To conjoin both perspectives not only strengthens the negative relativity between crime and well-being but also offers a more refined tool to measure socioeconomic impact of crime.
+
+### 2.1.2 Neighborhood(V103):
+
+Another social factor widely recognized to influence quality of life is neighborliness, specifically the degree to which an individual trusts his or her neighbors. Neighborhood trust is an important part of social capital, which not only reflects whether there is healthy interaction within the community, but also whether individuals can get enough security in daily life. Research has found that living in a community that is perceived as "reliable" and "trustworthy", residents are more likely to develop positive social connections, which increases psychological security and life satisfaction (Kullberg et al., 2010). Conversely, a neighborhood environment that lacks trust may exacerbate social isolation, weaken interpersonal support systems, and make individuals more vulnerable to stress, such as financial hardship or health problems. Therefore, neighbor trust can be used as a variable to measure quality of life.
+
+### 2.1.3 Social Respect
+
+According to Andres and Viola (2014), they describe social capital as informal social interaction and trust. Their research shows that the results clearly prove the presence of a positive and robust connection between social capital and individual happiness across European countries.
+
+### 2.1.4 (Feature 4 and 5) Without medicine or medical treatment(V190 and V188)
+
+Another important predictor of changes in quality of life is the availability of adequate medical services or medications. Medical service plays a fundamental role in maintaining an individual's physical health, delaying the deterioration of chronic diseases and providing psychological support. Studies have shown that during public health crises such as COVID-19, people's quality of life is closely related to the disruption of medical services, and people who have lost needed medical services during the epidemic are more likely to experience reduced or unstable quality of life (Alexandrov et al.,2024). Therefore, it is possible to judge people's basic quality of life by investigating whether there is a lack of medical services.
+
+```{r}
+# Compute correlation matrix heatmap
+# Calculate correlation matrix (excluding missing values)
+cor_matrix <- cor(select_data, use = "complete.obs")
+
+# Reshape to long format
+library(reshape2)
+cor_df <- melt(cor_matrix)
+
+# Plot heatmap
+ggplot(cor_df, aes(Var2, Var1, fill = value)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", midpoint = 0,
+                       limit = c(-1, 1), space = "Lab", name = "Correlation Coefficient") +
+  geom_text(aes(label = round(value, 2)), size = 4) +
+  theme_minimal() +
+  labs(title = "Correlation of Features and Life Quality Label",
+     x = "Variables", y = "Variables") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+
+```
+
+# 3.Modelling Approach
+
+At the first stage, we adopted a data-based filter approach. We converted all survey data to numeric data, calculated Pearson correlations with latent life-quality scores. We selected the five factors with highest coefficients as provisional predictors. The filter method identified variables with the strongest bivariate associations, condensing a very large questionnaire to a workable subset for theory-driven modelling.
+
+After factor selection, we estimated a linear-regression model with life-quality as a dependent variable and the five selected factors as independent variables. We will discuss the result in the next part.
+
+```{r}
+# Remove rows with missing values
+select_data_clean <- na.omit(select_data)
+
+# Use linear regression to predict life satisfaction (lab)
+model <- lm(lab ~ safety + 
+                  enough_foot + 
+                  neighborhood_friendly + 
+                  medical_treatment + 
+                  respect_human, 
+            data = select_data_clean)
+```
+
+# 4.Result Interpretation
+
+```{r}
+summary(model)
+```
+
+The linear model (N = 1717) accounted for approximately 22% of the variance in the latent life‑quality index (R² = 0.22, F = 96.6, p \<. 001 ). The residual standard error is 0.83, meaning that the typical deviation between observed and predicted life-quality scores is less than one unit on the standardized scale, which is acceptable for survey data. Df (Degree of freedom) is 1717 shows that there is only very little information lost to list-wise deletion. Multiple R\^2 = 0.220 and adjust R\^2 = 0.217 shows that, after data clean process, roughly 22% of variation is still captured.
+
+All five factors are positive and highly signficant. Feeling safe ($\beta$ = 0.15,t =5.43) and having enough food ($\beta$=0.16,t=3.42) both raise life quality, confirming the importance of basic security. Perceiving neighbours as friendly shows the largest effect ($\beta$=0.31,t=8.54), suggesting strong community capital benefits. Reliable access to medical treatment ($\beta$=0.29,t=7.86) also boosts well‑being, while feeling respected as a human being ($\beta$=0.17,t=5.97) underscores the psychosocial dimension.
+
+# 5.Discussion
+
+This study aims to explore the predictive power of various social and material conditions on individual quality of life (QoL), focusing on the impact of basic needs, social relationships, and interpersonal relationships, using multiple dimensional variables such as the availability of food and medical services, neighborhood trust, personal security, and social respect to understand individual quality of life. From the perspective of social and environmental factors, fear of crime significantly affects subjective well-being. Guardiola and Rojas(2016) emphasize that hunger not only brings physical pain, but also may lead to long-term psychological trauma. Even if hunger is relieved, such emotional impact still exists At the same time, as an important embodiment of social capital, neighborhood trust has a significant positive impact on the quality of life. Kullberg et al. (2010) pointed out that individuals who trust their neighbors are more likely to receive social support and a sense of security, which enhances their subjective well-being, while the reverse may exacerbate isolation and helplessness. The above results emphasize that the quality of life is shaped by multiple factors such as crime rate, community relations, social capital and basic material conditions, which is highly consistent with the theoretical expectations of this study.
+
+Although the results of the study support the multidimensional prediction model of quality of life, there are still several shortcomings. First, it is difficult to identify the causal relationship between variables, especially between social trust and happiness, which may have a reverse or two-way effect. Second, research has focused primarily on external social and material factors, ignoring individual-level psychological factors such as emotional regulation, personality traits, or coping mechanisms, which can also significantly affect subjective quality of life. In addition, some key variables (such as social respect and neighborhood trust) depend on subjective self-reporting, which may be disturbed by emotional state and cultural background, and there is a risk of measurement bias.
+
+# 6. Limitations
+
+## 6.1 Limitations of Correlation-Based Selection
+
+While correlation-based screening method is used to identify the top variables, it does make a vacuum assumption that all variables with low correlation with well-being are to be eliminated, as such does not take into account the subtle influences of non contributing variables. Our dataset includes multiple-response items, 0–10 scales, and yes/no questions, which may lead to inconsistent measurement properties for different variables. Consequently, some constructs were not well represented across tests, or could be hemmed in by response-type variability, prompting us to omit them from the final selection. Thus, while in principle our method identifies the statistically more dominant predictors among those collected in the survey, it may fail to include important predictors whose impact is less directly observable through mere surrounding correlations but could still have theoretical or practical value.
+
+## 6.2 Measurement results are based on the respondents’ subjectivity.
+
+All of the measurements in the survey were based on self-reports, which can be associated with social desirability bias and other potential biases. This is especially important for constructs like crime and sense of security; if respondents over- or under-report their experiences, subjective perceptions may not correlate with objective facts.
+
+## 6.3 Limitationof the measurements
+
+Constructs like family or neighborhood environment are measured with a single item, thus not capturing the complexity of the constructs.The deprivation experience is limited to cash, food or medical treatment (V188, V190 and V191) not to other deprivation type.
+
+## 6.4 Omitted Variables
+
+The model is based on a mere five main predictors, without controls for other well-known determinants such as age, gender, education and psychological characteristics. Often perceived characteristics of groups or individuals may influence perceptions of crime, family and other features of a model and thus confound the model.
+
+## 6.5 Limitations of Cross-Culture and Time
+
+These findings, of course, are based on Australian data from 2018, so might not be generalised to other cultural contexts or to the present time. In countries with higher crime and poverty rates, or ones with more collectivist cultures, the impact of crime and deprivation, or of family, may be even stronger.
+
+# 7. Conclusion
+
+Our analysis demonstrates that the quality of life is determined by an interlocked set of material and social circumstances. People who feel safe, have a nice neighbourhood environment, higher social respect, and have reliable access to food and medical treatment report significantly higher quality of life scores. These results confirm our preliminary hypothesis and support previous findings. 
+
+\newpage
+# References
+
+Alexandrov, N., Scott, E. S., Janssen, M. F., Lubetkin, E. I., Yfantopoulos, J. N., Bonsel, G. J., & Haagsma, J. A. (2024). The relationship between healthcare access and change in health-related quality-of-life among the general population of five countries during the COVID-19 pandemic. Quality of Life Research, 33(9), 2541-2552.
+
+Dang Vu, H. N., & Ásgeirsdóttir, T. L. (2024). Estimating the cost of crime victimization: A compensating income variation approach using different utility proxies. Social Indicators Research.
+
+Guardiola, J., & Rojas, M. (2016). Food-deprivation and subjective well-being in Latin America. Handbook of happiness research in Latin America, 219-229.
+
+Kullberg, A., Timpka, T., Svensson, T., Karlsson, N., & Lindqvist, K. (2010). Does the perceived neighborhood reputation contribute to neighborhood differences in social trust and residential wellbeing?. Journal of community psychology, 38(5), 591-606.
+
+Powdthavee, N. (2005). Unhappiness and crime: evidence from South Africa. Economica, 72(287), 531-547.
+
+Rodríguez-Pose, A., & von Berlepsch, V. (2014). Social capital and individual happiness in Europe. Journal of Happiness Studies, 15(2), 357–386. <https://doi.org/10.1007/s10902-013-9426-y>
+
