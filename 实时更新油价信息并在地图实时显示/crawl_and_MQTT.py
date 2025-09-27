@@ -13,7 +13,7 @@ warnings.filterwarnings("ignore")
 # 1. Configure constants
 # Only need to update API_KEY and AUTHORIZATION
 
-API_KEY = "8mA6IBCXUObKppdypHVboiGySIb9IEQl"
+API_KEY = "*************************************"
 AUTHORIZATION = "Basic OG1BNklCQ1hVT2JLcHBkeXBIVmJvaUd5U0liOUlFUWw6WUZjUHBuMXhjY2d0UmxEVg=="
 
 GRANT_TYPE = "client_credentials"
