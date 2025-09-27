@@ -14,7 +14,7 @@ warnings.filterwarnings("ignore")
 # Only need to update API_KEY and AUTHORIZATION
 
 API_KEY = "*************************************"
-AUTHORIZATION = "Basic OG1BNklCQ1hVT2JLcHBkeXBIVmJvaUd5U0liOUlFUWw6WUZjUHBuMXhjY2d0UmxEVg=="
+AUTHORIZATION = "*****************************************"
 
 GRANT_TYPE = "client_credentials"
 CONTENT_TYPE = "application/json; charset=utf-8"
